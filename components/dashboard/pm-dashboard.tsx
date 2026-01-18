@@ -22,6 +22,39 @@ interface PMDashboardProps {
 }
 
 export function PMDashboard({ user }: PMDashboardProps) {
+  if (user.status === "INVITED") {
+    return (
+      <div className="space-y-6 animate-fade-in">
+        <div>
+          <h1 className="text-2xl font-bold text-zinc-100">
+            Welcome, {user.name.split(" ")[0]}!
+          </h1>
+          <p className="text-zinc-400 mt-1">
+            Your PM account is pending admin approval.
+          </p>
+        </div>
+
+        <Card className="p-6 bg-linear-to-r from-purple-500/10 to-indigo-500/10 border-purple-500/20">
+          <p className="text-sm text-purple-400/80">Next step</p>
+          <p className="text-lg font-semibold text-zinc-100 mt-1">
+            Complete onboarding & sign the NDA
+          </p>
+          <p className="text-sm text-zinc-400 mt-1">
+            After admin approval you’ll be able to access People/Projects and start managing work. Please stay
+            active on email/WhatsApp — the admin may reach out for additional info.
+          </p>
+          <div className="mt-4">
+            <Link href="/onboarding">
+              <Button className="bg-purple-600 hover:bg-purple-700 text-white">
+                Go to onboarding
+              </Button>
+            </Link>
+          </div>
+        </Card>
+      </div>
+    );
+  }
+
   const projectStats = useQuery(api.projects.getProjectStats, {});
   const projectsAtRisk = useQuery(api.projects.getProjectsAtRisk, {});
   const overdueMilestones = useQuery(api.milestones.getOverdueMilestones, {});
@@ -39,7 +72,7 @@ export function PMDashboard({ user }: PMDashboardProps) {
           <p className="text-zinc-400 mt-1">Here&apos;s your project overview</p>
         </div>
         <Link href="/projects/new">
-          <Button className="bg-gradient-to-r from-rose-500 to-orange-500 hover:from-rose-600 hover:to-orange-600 text-white">
+          <Button className="bg-linear-to-r from-rose-500 to-orange-500 hover:from-rose-600 hover:to-orange-600 text-white">
             <Plus className="w-4 h-4 mr-2" />
             New Project
           </Button>
@@ -99,7 +132,7 @@ export function PMDashboard({ user }: PMDashboardProps) {
       
       {/* Pending Submissions */}
       {pendingSubmissions && pendingSubmissions.length > 0 && (
-        <Card className="p-6 bg-gradient-to-r from-blue-500/10 to-cyan-500/10 border-blue-500/20">
+        <Card className="p-6 bg-linear-to-r from-blue-500/10 to-cyan-500/10 border-blue-500/20">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-lg font-semibold text-zinc-200">Pending Reviews</h2>
             <Badge className="bg-blue-500/20 text-blue-400 border-blue-500/30">
@@ -179,7 +212,7 @@ export function PMDashboard({ user }: PMDashboardProps) {
           {editors?.slice(0, 4).map((editor) => (
             <Card key={editor._id} className="p-4 bg-zinc-900/50 border-zinc-800">
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-full bg-gradient-to-br from-zinc-600 to-zinc-700 flex items-center justify-center text-zinc-200 font-medium">
+                <div className="w-10 h-10 rounded-full bg-linear-to-br from-zinc-600 to-zinc-700 flex items-center justify-center text-zinc-200 font-medium">
                   {editor.name.charAt(0)}
                 </div>
                 <div className="flex-1 min-w-0">

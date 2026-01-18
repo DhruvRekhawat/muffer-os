@@ -37,10 +37,33 @@ export function EditorDashboard({ user }: EditorDashboardProps) {
         </h1>
         <p className="text-zinc-400 mt-1">Here&apos;s your progress overview</p>
       </div>
+
+      {/* Hiring / onboarding gate */}
+      {user.status === "INVITED" && (
+        <Card className="p-6 bg-linear-to-r from-purple-500/10 to-indigo-500/10 border-purple-500/20">
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <p className="text-sm text-purple-400/80">Action required</p>
+              <p className="text-lg font-semibold text-zinc-100 mt-1">
+                Complete onboarding to unlock project assignments
+              </p>
+              <p className="text-sm text-zinc-400 mt-1">
+                Fill your details, accept the NDA, and submit the test project. After admin approval
+                you&apos;ll be able to join real client projects.
+              </p>
+            </div>
+            <Link href="/onboarding">
+              <Button className="bg-purple-600 hover:bg-purple-700 text-white">
+                Start onboarding
+              </Button>
+            </Link>
+          </div>
+        </Card>
+      )}
       
       {/* Earnings Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <Card className="p-6 bg-gradient-to-br from-emerald-500/10 to-emerald-600/5 border-emerald-500/20">
+        <Card className="p-6 bg-linear-to-br from-emerald-500/10 to-emerald-600/5 border-emerald-500/20">
           <div className="flex items-start justify-between">
             <div>
               <p className="text-sm text-emerald-400/80">Unlocked Balance</p>
@@ -99,7 +122,7 @@ export function EditorDashboard({ user }: EditorDashboardProps) {
       
       {/* Next Action */}
       {nextMilestone && (
-        <Card className="p-6 bg-gradient-to-r from-rose-500/10 to-orange-500/10 border-rose-500/20">
+        <Card className="p-6 bg-linear-to-r from-rose-500/10 to-orange-500/10 border-rose-500/20">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-4">
               <div className="w-12 h-12 rounded-xl bg-rose-500/20 flex items-center justify-center">
@@ -195,7 +218,7 @@ export function EditorDashboard({ user }: EditorDashboardProps) {
                 </div>
                 <div className="w-full h-2 bg-zinc-800 rounded-full overflow-hidden">
                   <div 
-                    className="h-full bg-gradient-to-r from-purple-500 to-pink-500 rounded-full transition-all"
+                    className="h-full bg-linear-to-r from-purple-500 to-pink-500 rounded-full transition-all"
                     style={{ width: `${item.percentComplete}%` }}
                   />
                 </div>

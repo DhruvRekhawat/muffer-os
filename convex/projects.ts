@@ -70,6 +70,9 @@ export const listProjects = query({
     if (args.editorId) {
       projects = projects.filter(p => p.editorIds.includes(args.editorId!));
     }
+
+    // Hide test projects from the Projects page/list (still accessible by direct slug).
+    projects = projects.filter(p => p.isTestProject !== true);
     
     return projects;
   },
@@ -116,6 +119,35 @@ export const getProject = query({
   },
 });
 
+// Get project by ID with access control (for chat UI)
+export const getProjectForCurrentUser = query({
+  args: { projectId: v.id("projects") },
+  handler: async (ctx, args) => {
+    const identity = await auth.getUserId(ctx);
+    if (!identity) return null;
+
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_token", (q) => q.eq("tokenIdentifier", identity))
+      .first();
+
+    if (!user) return null;
+
+    const project = await ctx.db.get(args.projectId);
+    if (!project) return null;
+
+    // Check access
+    if (user.role === "EDITOR" && !project.editorIds.includes(user._id)) {
+      return null;
+    }
+    if (user.role === "PM" && project.pmId !== user._id) {
+      return null;
+    }
+
+    return project;
+  },
+});
+
 // Create new project (with order)
 export const createProject = mutation({
   args: {
@@ -149,6 +181,9 @@ export const createProject = mutation({
     
     if (!user || (user.role !== "SUPER_ADMIN" && user.role !== "PM")) {
       throw new Error("Unauthorized");
+    }
+    if (user.role === "PM" && user.status !== "ACTIVE") {
+      throw new Error("Not approved yet");
     }
     
     // Create order first
@@ -234,6 +269,7 @@ export const updateProject = mutation({
     name: v.optional(v.string()),
     emoji: v.optional(v.string()),
     background: v.optional(v.string()),
+    summary: v.optional(v.string()),
     status: v.optional(v.union(
       v.literal("ACTIVE"),
       v.literal("AT_RISK"),
@@ -252,6 +288,9 @@ export const updateProject = mutation({
       .first();
     
     if (!user) throw new Error("User not found");
+    if (user.role === "PM" && user.status !== "ACTIVE") {
+      throw new Error("Not approved yet");
+    }
     
     const project = await ctx.db.get(args.projectId);
     if (!project) throw new Error("Project not found");
@@ -268,6 +307,11 @@ export const updateProject = mutation({
     if (args.name !== undefined) updates.name = args.name;
     if (args.emoji !== undefined) updates.emoji = args.emoji;
     if (args.background !== undefined) updates.background = args.background;
+    if (args.summary !== undefined) {
+      updates.summary = args.summary;
+      updates.summaryUpdatedAt = Date.now();
+      updates.summaryUpdatedBy = user._id;
+    }
     if (args.status !== undefined) updates.status = args.status;
     if (args.dueDate !== undefined) updates.dueDate = args.dueDate;
     
@@ -291,16 +335,30 @@ export const assignEditorToProject = mutation({
       .withIndex("by_token", (q) => q.eq("tokenIdentifier", identity))
       .first();
     
-    if (!user || user.role === "EDITOR") {
+    if (!user || (user.role !== "SUPER_ADMIN" && user.role !== "PM")) {
       throw new Error("Unauthorized");
+    }
+    if (user.role === "PM" && user.status !== "ACTIVE") {
+      throw new Error("Not approved yet");
     }
     
     const project = await ctx.db.get(args.projectId);
     if (!project) throw new Error("Project not found");
+
+    // PMs can only manage their own projects
+    if (user.role === "PM" && project.pmId !== user._id) {
+      throw new Error("Not your project");
+    }
     
     const editor = await ctx.db.get(args.editorId);
     if (!editor || editor.role !== "EDITOR") {
       throw new Error("Invalid editor");
+    }
+
+    const isTestAssignment =
+      project.isTestProject === true && project.testForEditorId === editor._id;
+    if (!isTestAssignment && editor.status !== "ACTIVE") {
+      throw new Error("Editor is not approved yet");
     }
     
     // Check if already assigned
@@ -330,6 +388,7 @@ export const getProjectsAtRisk = query({
       .first();
     
     if (!user) return [];
+    if (user.role === "PM" && user.status !== "ACTIVE") return [];
     
     let projects = await ctx.db
       .query("projects")
@@ -440,6 +499,8 @@ export const createProjectAndAssignEditor = mutation({
     // Verify editor exists
     const editor = await ctx.db.get(args.editorId);
     if (!editor) throw new Error("Editor not found");
+    if (editor.role !== "EDITOR") throw new Error("User is not an editor");
+    if (editor.status !== "ACTIVE") throw new Error("Editor is not approved yet");
     
     // Create order
     const orderId = await ctx.db.insert("orders", {
@@ -506,6 +567,7 @@ export const getProjectStats = query({
       .first();
     
     if (!user) return null;
+    if (user.role === "PM" && user.status !== "ACTIVE") return null;
     
     let projects = await ctx.db.query("projects").collect();
     
@@ -550,6 +612,133 @@ function getDefaultMilestones(serviceType: string, totalPrice: number) {
   
   return milestones[serviceType as keyof typeof milestones] || milestones.EditMax;
 }
+
+// Create project from existing order (admin UI)
+export const createProjectFromOrderAdmin = mutation({
+  args: {
+    orderId: v.id("orders"),
+    budget: v.number(),
+    dueDate: v.optional(v.number()),
+    pmId: v.id("users"),
+    editorIds: v.array(v.id("users")),
+    milestones: v.array(v.object({
+      title: v.string(),
+      description: v.optional(v.string()),
+      payoutAmount: v.number(),
+      order: v.number(),
+    })),
+    projectName: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const identity = await auth.getUserId(ctx);
+    if (!identity) throw new Error("Not authenticated");
+    
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_token", (q) => q.eq("tokenIdentifier", identity))
+      .first();
+    
+    // Only SUPER_ADMIN can create projects from orders
+    if (!user || user.role !== "SUPER_ADMIN") {
+      throw new Error("Unauthorized");
+    }
+    
+    // Get order
+    const order = await ctx.db.get(args.orderId);
+    if (!order) throw new Error("Order not found");
+    
+    // Check if project already exists for this order
+    const existingProject = await ctx.db
+      .query("projects")
+      .filter((q) => q.eq(q.field("orderId"), args.orderId))
+      .first();
+    
+    if (existingProject) {
+      throw new Error("Project already exists for this order");
+    }
+    
+    // Get PM details
+    const pm = await ctx.db.get(args.pmId);
+    if (!pm) throw new Error("PM not found");
+    
+    if (pm.role !== "PM" && pm.role !== "SUPER_ADMIN") {
+      throw new Error("Selected user is not a PM");
+    }
+    
+    // Get editor details
+    const editorNames: string[] = [];
+    for (const editorId of args.editorIds) {
+      const editor = await ctx.db.get(editorId);
+      if (!editor) throw new Error(`Editor ${editorId} not found`);
+      if (editor.role !== "EDITOR") {
+        throw new Error(`User ${editorId} is not an editor`);
+      }
+      if (editor.status !== "ACTIVE") {
+        throw new Error(`Editor ${editor.name} is not approved yet`);
+      }
+      editorNames.push(editor.name);
+    }
+    
+    // Generate project name
+    const projectName = args.projectName || 
+      (order.clientName ? `${order.clientName} - ${order.serviceType}` : `Project - ${order.serviceType}`);
+    const slug = generateSlug(projectName);
+    
+    // Create project
+    const projectId = await ctx.db.insert("projects", {
+      orderId: args.orderId,
+      name: projectName,
+      slug,
+      emoji: "🎬",
+      status: "ACTIVE",
+      pmId: args.pmId,
+      pmName: pm.name,
+      editorIds: args.editorIds,
+      editorNames,
+      milestoneCount: args.milestones.length,
+      completedMilestoneCount: 0,
+      budget: args.budget,
+      dueDate: args.dueDate,
+      createdAt: Date.now(),
+    });
+    
+    // Create milestones
+    for (const milestone of args.milestones) {
+      await ctx.db.insert("milestones", {
+        projectId,
+        projectName,
+        title: milestone.title,
+        description: milestone.description,
+        order: milestone.order,
+        payoutAmount: milestone.payoutAmount,
+        status: milestone.order === 1 ? "IN_PROGRESS" : "LOCKED",
+        createdAt: Date.now(),
+      });
+    }
+    
+    // Update order status to IN_PROGRESS
+    await ctx.db.patch(args.orderId, {
+      status: "IN_PROGRESS",
+    });
+    
+    // Create audit event
+    await ctx.db.insert("auditEvents", {
+      actorId: user._id,
+      actorRole: user.role,
+      action: "project.created.from_order",
+      entityType: "project",
+      entityId: projectId.toString(),
+      metadata: { 
+        orderId: args.orderId.toString(),
+        projectName,
+        budget: args.budget,
+      },
+      createdAt: Date.now(),
+    });
+    
+    return { projectId, slug };
+  },
+});
 
 // Internal mutation: Create project from external order (called via HTTP API)
 export const createProjectFromOrder = internalMutation({

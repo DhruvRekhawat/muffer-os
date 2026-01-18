@@ -103,6 +103,19 @@ export const listUsers = query({
     )),
   },
   handler: async (ctx, args) => {
+    const identity = await auth.getUserId(ctx);
+    if (!identity) return [];
+
+    const currentUser = await ctx.db
+      .query("users")
+      .withIndex("by_token", (q) => q.eq("tokenIdentifier", identity))
+      .first();
+
+    const canView =
+      currentUser?.role === "SUPER_ADMIN" ||
+      (currentUser?.role === "PM" && currentUser.status === "ACTIVE");
+    if (!canView) return [];
+
     if (args.role) {
       return await ctx.db
         .query("users")
@@ -517,20 +530,13 @@ export const updateMyRole = mutation({
     
     if (!user) throw new Error("User not found");
     
-    // Only allow updating role if user doesn't have one yet, or if they're upgrading
-    // This prevents downgrading existing roles
-    if (!user.role || user.role === "EDITOR") {
+    // Only allow setting role if user truly has no role yet (signup fallback).
+    // IMPORTANT: Prevent self-promotion from EDITOR -> PM after account creation.
+    if (!user.role) {
       await ctx.db.patch(user._id, { role: args.role });
       return user._id;
     }
-    
-    // If user already has a role (PM or SUPER_ADMIN), don't allow downgrade
-    // But allow upgrade from PM to SUPER_ADMIN if needed
-    if (user.role === "PM" && args.role === "SUPER_ADMIN") {
-      await ctx.db.patch(user._id, { role: args.role });
-      return user._id;
-    }
-    
+
     return user._id;
   },
 });
@@ -674,5 +680,93 @@ export const getEditorStats = query({
       activeProjectsCount: activeProjects.length,
       pendingMilestonesCount: milestones.length,
     };
+  },
+});
+
+// Get PMs with project count
+export const getPMsWithProjectCount = query({
+  args: {},
+  handler: async (ctx) => {
+    const identity = await auth.getUserId(ctx);
+    if (!identity) return [];
+    
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_token", (q) => q.eq("tokenIdentifier", identity))
+      .first();
+    
+    // Only SUPER_ADMIN and ACTIVE PM can view PMs
+    if (!user || (user.role !== "SUPER_ADMIN" && !(user.role === "PM" && user.status === "ACTIVE"))) {
+      return [];
+    }
+    
+    // Get all PMs and SUPER_ADMINs
+    const pms = await ctx.db
+      .query("users")
+      .withIndex("by_role", (q) => q.eq("role", "PM"))
+      .collect();
+    
+    const superAdmins = await ctx.db
+      .query("users")
+      .withIndex("by_role", (q) => q.eq("role", "SUPER_ADMIN"))
+      .collect();
+    
+    const allPMs = [...pms, ...superAdmins];
+    
+    // Get all projects
+    const allProjects = await ctx.db
+      .query("projects")
+      .filter((q) => q.neq(q.field("status"), "COMPLETED"))
+      .collect();
+    
+    // Calculate project count for each PM
+    return allPMs.map(pm => {
+      const projectCount = allProjects.filter(p => p.pmId === pm._id).length;
+      return {
+        ...pm,
+        projectCount,
+      };
+    });
+  },
+});
+
+// Get Editors with project count
+export const getEditorsWithProjectCount = query({
+  args: {},
+  handler: async (ctx) => {
+    const identity = await auth.getUserId(ctx);
+    if (!identity) return [];
+    
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_token", (q) => q.eq("tokenIdentifier", identity))
+      .first();
+    
+    // Only SUPER_ADMIN and ACTIVE PM can view editors
+    if (!user || (user.role !== "SUPER_ADMIN" && !(user.role === "PM" && user.status === "ACTIVE"))) {
+      return [];
+    }
+    
+    // Get all ACTIVE editors
+    const editors = await ctx.db
+      .query("users")
+      .withIndex("by_role", (q) => q.eq("role", "EDITOR"))
+      .filter((q) => q.eq(q.field("status"), "ACTIVE"))
+      .collect();
+    
+    // Get all projects
+    const allProjects = await ctx.db
+      .query("projects")
+      .filter((q) => q.neq(q.field("status"), "COMPLETED"))
+      .collect();
+    
+    // Calculate project count for each editor
+    return editors.map(editor => {
+      const projectCount = allProjects.filter(p => p.editorIds.includes(editor._id)).length;
+      return {
+        ...editor,
+        projectCount,
+      };
+    });
   },
 });

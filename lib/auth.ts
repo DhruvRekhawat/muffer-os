@@ -169,17 +169,18 @@ export function useVerifyCode() {
 
 // Permission helpers
 export function usePermissions() {
-  const { role } = useAuth();
+  const { role, user } = useAuth();
+  const isActive = user?.status === "ACTIVE";
   
   return {
     isSuperAdmin: role === "SUPER_ADMIN",
-    isPM: role === "PM",
+    isPM: role === "PM" && isActive,
     isEditor: role === "EDITOR",
-    canManageProjects: role === "SUPER_ADMIN" || role === "PM",
+    canManageProjects: role === "SUPER_ADMIN" || (role === "PM" && isActive),
     canManageMissions: role === "SUPER_ADMIN",
     canManageHiring: role === "SUPER_ADMIN",
     canProcessPayouts: role === "SUPER_ADMIN",
-    canApproveSubmissions: role === "SUPER_ADMIN" || role === "PM",
+    canApproveSubmissions: role === "SUPER_ADMIN" || (role === "PM" && isActive),
   };
 }
 

@@ -161,7 +161,7 @@ export function ProjectChat({ projectId }: ProjectChatProps) {
                   
                   <div className={`rounded-2xl px-4 py-2 ${
                     isOwnMessage 
-                      ? "bg-gradient-to-r from-rose-500/20 to-orange-500/20 border border-rose-500/20" 
+                      ? "bg-linear-to-r from-rose-500/20 to-orange-500/20 border border-rose-500/20" 
                       : "bg-zinc-800"
                   }`}>
                     {isDriveLink(msg.content) ? (
@@ -175,7 +175,7 @@ export function ProjectChat({ projectId }: ProjectChatProps) {
                         <span className="underline">View on Drive</span>
                       </a>
                     ) : (
-                      <p className="text-zinc-200 whitespace-pre-wrap break-words">{msg.content}</p>
+                      <p className="text-zinc-200 whitespace-pre-wrap wrap-break-word">{msg.content}</p>
                     )}
                   </div>
                 </div>
@@ -199,7 +199,7 @@ export function ProjectChat({ projectId }: ProjectChatProps) {
           <Button 
             type="submit" 
             disabled={isSending || !message.trim()}
-            className="bg-gradient-to-r from-rose-500 to-orange-500 hover:from-rose-600 hover:to-orange-600 text-white"
+            className="bg-linear-to-r from-rose-500 to-orange-500 hover:from-rose-600 hover:to-orange-600 text-white"
           >
             {isSending ? (
               <Loader2 className="w-4 h-4 animate-spin" />

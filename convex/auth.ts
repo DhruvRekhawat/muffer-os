@@ -3,6 +3,22 @@ import { Password } from "@convex-dev/auth/providers/Password";
 import { MutationCtx } from "./_generated/server";
 import { Id, Doc } from "./_generated/dataModel";
 
+async function ensureEditorHiring(ctx: MutationCtx, userId: Id<"users">) {
+  const existing = await ctx.db
+    .query("editorHiring")
+    .withIndex("by_user", (q) => q.eq("userId", userId))
+    .first();
+  if (existing) return existing._id;
+
+  return await ctx.db.insert("editorHiring", {
+    userId,
+    status: "ONBOARDING",
+    ndaDocumentName: "Partner NDA-1.pdf",
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  });
+}
+
 export const { auth, signIn, signOut, store } = convexAuth({
   providers: [
     Password({
@@ -40,7 +56,8 @@ export const { auth, signIn, signOut, store } = convexAuth({
         // Extract profile fields - name and role come from the profile object
         const email = typeof args.profile.email === "string" ? args.profile.email : "";
         const name = typeof args.profile.name === "string" ? args.profile.name : (email.includes("@") ? email.split("@")[0] : "User");
-        const role = typeof args.profile.role === "string" ? (args.profile.role as "SUPER_ADMIN" | "PM" | "EDITOR") : undefined;
+        const roleRaw = typeof args.profile.role === "string" ? args.profile.role : undefined;
+        const role = roleRaw as "SUPER_ADMIN" | "PM" | "EDITOR" | undefined;
         
         const profile = { email, name, role };
         const existingUserId = args.existingUserId;
@@ -155,7 +172,7 @@ export const { auth, signIn, signOut, store } = convexAuth({
           // During signup, allow setting/updating role
           if (role) {
             updates.role = role;
-            console.log("createOrUpdateUser - Signup: Setting role to:", role);
+            console.log("createOrUpdateUser - Signup: Setting role to:", role, "(raw:", roleRaw, ")");
           } else if (existingByEmail.role === undefined || existingByEmail.role === null) {
             // During signup without role, default to EDITOR only if no role exists
             updates.role = "EDITOR";
@@ -164,8 +181,18 @@ export const { auth, signIn, signOut, store } = convexAuth({
           // If user already has a role and no role provided in profile, preserve it
         }
         
+        // Status handling:
+        // - New EDITOR/PM signups should be INVITED (not approved yet)
+        // - Preserve existing status always
         if (existingByEmail.status === undefined) {
-          updates.status = "ACTIVE";
+          const effectiveRole =
+            (updates.role as Doc<"users">["role"]) ??
+            existingByEmail.role ??
+            role ??
+            "EDITOR";
+          const isNewInvitedSignUp =
+            flow === "signUp" && (effectiveRole === "EDITOR" || effectiveRole === "PM");
+          updates.status = isNewInvitedSignUp ? "INVITED" : "ACTIVE";
         }
         if (existingByEmail.unlockedBalance === undefined) {
           updates.unlockedBalance = 0;
@@ -176,6 +203,16 @@ export const { auth, signIn, signOut, store } = convexAuth({
         
         console.log("createOrUpdateUser - Updates to apply:", JSON.stringify(updates));
         await ctx.db.patch(existingByEmail._id, updates);
+
+        // Ensure hiring record exists for PMs and editors
+        const finalRole =
+          (updates.role as Doc<"users">["role"]) ??
+          existingByEmail.role ??
+          role ??
+          "EDITOR";
+        if (finalRole === "EDITOR" || finalRole === "PM") {
+          await ensureEditorHiring(ctx, existingByEmail._id);
+        }
         
         // Verify the final state
         const updatedUser = await ctx.db.get(existingByEmail._id);
@@ -227,7 +264,11 @@ export const { auth, signIn, signOut, store } = convexAuth({
           }
           
           if (existing.status === undefined) {
-            updates.status = "ACTIVE";
+            const effectiveRole =
+              (updates.role as Doc<"users">["role"]) ?? existing.role ?? role ?? "EDITOR";
+            const isNewInvitedSignUp =
+              flow === "signUp" && (effectiveRole === "EDITOR" || effectiveRole === "PM");
+            updates.status = isNewInvitedSignUp ? "INVITED" : "ACTIVE";
           }
           if (existing.unlockedBalance === undefined) {
             updates.unlockedBalance = 0;
@@ -238,6 +279,12 @@ export const { auth, signIn, signOut, store } = convexAuth({
           
           await ctx.db.patch(existingUserId, updates);
           console.log("createOrUpdateUser - Updated user (by ID, email mismatch), final role:", updates.role || existing.role);
+
+          const finalRole =
+            (updates.role as Doc<"users">["role"]) ?? existing.role ?? role ?? "EDITOR";
+          if (finalRole === "EDITOR" || finalRole === "PM") {
+            await ensureEditorHiring(ctx, existingUserId);
+          }
         }
         return existingUserId;
       }
@@ -248,17 +295,24 @@ export const { auth, signIn, signOut, store } = convexAuth({
       const userRole = role || "EDITOR";
       console.log("createOrUpdateUser - Creating new user with role:", userRole);
       
+      const initialStatus: Doc<"users">["status"] =
+        userRole === "EDITOR" || userRole === "PM" ? "INVITED" : "ACTIVE";
+
       const newUserId = await ctx.db.insert("users", {
         tokenIdentifier: tokenIdentifier,
         name: name,
         email: email,
         role: userRole,
-        status: "ACTIVE",
+        status: initialStatus,
         unlockedBalance: 0,
         lifetimeEarnings: 0,
         createdAt: Date.now(),
         lastActive: Date.now(),
       });
+
+      if (userRole === "EDITOR" || userRole === "PM") {
+        await ensureEditorHiring(ctx, newUserId);
+      }
       
       console.log("createOrUpdateUser - Created user with ID:", newUserId, "and role:", userRole);
       return newUserId;

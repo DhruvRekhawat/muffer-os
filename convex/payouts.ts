@@ -1,9 +1,60 @@
 import { v } from "convex/values";
-import { query, mutation } from "./_generated/server";
+import { query, mutation, internalMutation } from "./_generated/server";
 import { auth } from "./auth";
+import { internal } from "./_generated/api";
+import { Id } from "./_generated/dataModel";
 
 // Minimum payout threshold (in rupees)
 const MIN_PAYOUT = 500;
+
+// Internal: unlock editor wallet balance when a project is COMPLETED.
+// This is idempotent via `projects.payoutsUnlockedAt`.
+export const unlockProjectEarnings = internalMutation({
+  args: {
+    projectId: v.id("projects"),
+  },
+  handler: async (ctx, args) => {
+    const project = await ctx.db.get(args.projectId);
+    if (!project) return { ok: false as const, reason: "PROJECT_NOT_FOUND" as const };
+
+    if (project.status !== "COMPLETED") {
+      return { ok: false as const, reason: "PROJECT_NOT_COMPLETED" as const };
+    }
+
+    if (project.payoutsUnlockedAt) {
+      return { ok: true as const, alreadyUnlocked: true as const };
+    }
+
+    const milestones = await ctx.db
+      .query("milestones")
+      .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
+      .collect();
+
+    // Aggregate payout amounts per editor from APPROVED milestones.
+    const byEditor = new Map<Id<"users">, number>();
+    for (const m of milestones) {
+      if (m.status !== "APPROVED") continue;
+      if (!m.assignedEditorId) continue;
+      byEditor.set(m.assignedEditorId, (byEditor.get(m.assignedEditorId) || 0) + m.payoutAmount);
+    }
+
+    // Credit wallet balances.
+    for (const [editorId, amount] of byEditor.entries()) {
+      if (amount <= 0) continue;
+      await ctx.runMutation(internal.users.updateEditorBalance, {
+        editorId,
+        amount,
+        isAddition: true,
+      });
+    }
+
+    await ctx.db.patch(args.projectId, {
+      payoutsUnlockedAt: Date.now(),
+    });
+
+    return { ok: true as const, alreadyUnlocked: false as const };
+  },
+});
 
 // Get editor's payout history
 export const getEditorPayouts = query({

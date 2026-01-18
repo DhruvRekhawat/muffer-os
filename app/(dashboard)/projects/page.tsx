@@ -28,6 +28,34 @@ export default function ProjectsPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("ALL");
   
+  if (user?.status === "INVITED") {
+    return (
+      <div className="space-y-6 animate-fade-in">
+        <div>
+          <h1 className="text-2xl font-bold text-zinc-100">Projects</h1>
+          <p className="text-zinc-400 mt-1">
+            Your account is pending admin approval.
+          </p>
+        </div>
+        <div className="p-6 rounded-xl border border-zinc-800 bg-zinc-900/50">
+          <p className="text-sm text-zinc-300">
+            You’ll be able to access projects once you’re approved.
+          </p>
+          <p className="text-sm text-zinc-500 mt-1">
+            Please complete onboarding and sign the NDA first.
+          </p>
+          <div className="mt-4">
+            <Link href="/onboarding">
+              <Button className="bg-zinc-800 hover:bg-zinc-700 text-zinc-100">
+                Go to onboarding
+              </Button>
+            </Link>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   const projects = useQuery(api.projects.listProjects, {
     status: statusFilter === "ALL" ? undefined : statusFilter,
   });
@@ -51,7 +79,7 @@ export default function ProjectsPage() {
         </div>
         {canManageProjects && (
           <Link href="/projects/new">
-            <Button className="bg-gradient-to-r from-rose-500 to-orange-500 hover:from-rose-600 hover:to-orange-600 text-white shadow-lg shadow-rose-500/20">
+            <Button className="bg-linear-to-r from-rose-500 to-orange-500 hover:from-rose-600 hover:to-orange-600 text-white shadow-lg shadow-rose-500/20">
               <Plus className="w-4 h-4 mr-2" />
               New Project
             </Button>

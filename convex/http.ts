@@ -1,14 +1,46 @@
 import { httpRouter } from "convex/server";
 import { httpAction } from "./_generated/server";
 import { auth } from "./auth";
-import { internal } from "./_generated/api";
+import { api, internal } from "./_generated/api";
 
 const http = httpRouter();
 
 auth.addHttpRoutes(http);
 
-// API endpoint for creating projects from external orders
+const pricingCorsHeaders: Record<string, string> = {
+  "Content-Type": "application/json",
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "GET, OPTIONS",
+  "Access-Control-Allow-Headers": "Content-Type",
+  "Cache-Control": "public, max-age=60, stale-while-revalidate=300",
+};
+
+// Public pricing API for external website
+// GET /api/pricing
+const getPricingHandler = httpAction(async (ctx) => {
+  try {
+    const pricing = await ctx.runQuery(api.pricing.getPublicPricingConfig, {});
+    return new Response(JSON.stringify(pricing), { status: 200, headers: pricingCorsHeaders });
+  } catch (error) {
+    console.error("Error fetching pricing:", error);
+    return new Response(
+      JSON.stringify({
+        error: "Failed to fetch pricing",
+        message: error instanceof Error ? error.message : "Unknown error",
+      }),
+      { status: 500, headers: pricingCorsHeaders }
+    );
+  }
+});
+
+// OPTIONS /api/pricing (CORS preflight)
+const pricingOptionsHandler = httpAction(async () => {
+  return new Response(null, { status: 204, headers: pricingCorsHeaders });
+});
+
+// API endpoint for creating orders from external website
 // POST /api/orders
+// This only creates an order, NOT a project. Admin must manually start the project using the multi-step form.
 const createOrderHandler = httpAction(async (ctx, request) => {
     try {
       const body = await request.json();
@@ -38,12 +70,10 @@ const createOrderHandler = httpAction(async (ctx, request) => {
         );
       }
       
-      // Call internal mutation to create project
-      const result = await ctx.runMutation(internal.projects.createProjectFromOrder, {
+      // Call internal mutation to create order only (no project)
+      const result = await ctx.runMutation(internal.orders.createOrderExternal, {
         name: body.name,
-        phone: body.phone || "",
         email: body.email,
-        company: body.company || undefined,
         service: serviceType,
         editMaxPlan: body.editMaxPlan || undefined,
         adMaxStyle: body.adMaxStyle || undefined,
@@ -51,24 +81,21 @@ const createOrderHandler = httpAction(async (ctx, request) => {
         adMaxCreatorAge: body.adMaxCreatorAge || undefined,
         contentMaxLength: body.contentMaxLength || undefined,
         addOns: body.addOns || [],
-        wantsSubscription: body.wantsSubscription || false,
-        subscriptionBundle: body.subscriptionBundle || undefined,
         brief: body.brief || undefined,
-        fileLinks: body.fileLinks || undefined,
         adCount: body.adCount || undefined,
         totalPrice: parseFloat(body.totalPrice),
         discountPercentage: body.discountPercentage || undefined,
         couponCode: body.couponCode || undefined,
         originalPrice: body.originalPrice || undefined,
         externalOrderId: body.orderId || body.id || undefined,
+        clientName: body.company || body.name || undefined,
+        clientEmail: body.email,
       });
       
       return new Response(
         JSON.stringify({ 
           success: true, 
-          projectId: result.projectId,
-          orderId: result.orderId,
-          slug: result.slug
+          orderId: result.orderId
         }),
         { 
           status: 201,
@@ -76,10 +103,10 @@ const createOrderHandler = httpAction(async (ctx, request) => {
         }
       );
     } catch (error) {
-      console.error("Error creating project from order:", error);
+      console.error("Error creating order:", error);
       return new Response(
         JSON.stringify({ 
-          error: "Failed to create project",
+          error: "Failed to create order",
           message: error instanceof Error ? error.message : "Unknown error"
         }),
         { 
@@ -145,6 +172,18 @@ const hireEditorHandler = httpAction(async (ctx, request) => {
 });
 
 // Route the handlers
+http.route({
+  path: "/api/pricing",
+  method: "GET",
+  handler: getPricingHandler,
+});
+
+http.route({
+  path: "/api/pricing",
+  method: "OPTIONS",
+  handler: pricingOptionsHandler,
+});
+
 http.route({
   path: "/api/orders",
   method: "POST",

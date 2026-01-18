@@ -13,7 +13,7 @@ export default function SignupPage() {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [role, setRole] = useState<"PM" | "EDITOR">("EDITOR");
+  const [role, setRole] = useState<"EDITOR" | "PM">("EDITOR");
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState(false);
@@ -47,7 +47,7 @@ export default function SignupPage() {
             Your account has been created successfully.
           </p>
           <Link href="/dashboard">
-            <Button className="w-full mt-4 bg-gradient-to-r from-rose-500 to-orange-500 hover:from-rose-600 hover:to-orange-600 text-white">
+            <Button className="w-full mt-4 bg-linear-to-r from-rose-500 to-orange-500 hover:from-rose-600 hover:to-orange-600 text-white">
               Go to Dashboard
             </Button>
           </Link>
@@ -60,7 +60,7 @@ export default function SignupPage() {
     <Card className="p-8 bg-zinc-900/80 backdrop-blur-xl border-zinc-800/50 shadow-2xl">
       <div className="text-center mb-8">
         <div className="flex items-center justify-center gap-2 mb-4">
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-rose-500 to-orange-500 flex items-center justify-center">
+          <div className="w-10 h-10 rounded-xl bg-linear-to-br from-rose-500 to-orange-500 flex items-center justify-center">
             <Sparkles className="w-5 h-5 text-white" />
           </div>
           <span className="text-2xl font-bold text-zinc-100 tracking-tight">Muffer</span>
@@ -143,8 +143,8 @@ export default function SignupPage() {
                 type="button"
                 onClick={() => setRole("PM")}
                 className={`flex-1 py-3 px-4 rounded-lg text-sm font-medium transition-all border ${
-                  role === "PM" 
-                    ? "bg-rose-500/10 border-rose-500/50 text-rose-400" 
+                  role === "PM"
+                    ? "bg-blue-500/10 border-blue-500/50 text-blue-400"
                     : "bg-zinc-800/50 border-zinc-700 text-zinc-400 hover:border-zinc-600"
                 }`}
               >
@@ -156,7 +156,7 @@ export default function SignupPage() {
           <Button 
             type="submit" 
             disabled={isLoading}
-            className="w-full bg-gradient-to-r from-rose-500 to-orange-500 hover:from-rose-600 hover:to-orange-600 text-white font-medium shadow-lg shadow-rose-500/25"
+            className="w-full bg-linear-to-r from-rose-500 to-orange-500 hover:from-rose-600 hover:to-orange-600 text-white font-medium shadow-lg shadow-rose-500/25"
           >
             {isLoading ? (
               <Loader2 className="w-4 h-4 animate-spin" />

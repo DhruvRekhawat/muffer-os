@@ -2,7 +2,7 @@
 
 import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
-import { useAuth, usePermissions } from "@/lib/auth";
+import { usePermissions } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -16,8 +16,7 @@ import {
 import Link from "next/link";
 
 export default function PayoutsPage() {
-  const { user } = useAuth();
-  const { canProcessPayouts, isEditor } = usePermissions();
+  const { canProcessPayouts } = usePermissions();
   
   // Editor sees their payouts, SA sees all
   const payouts = useQuery(api.payouts.getEditorPayouts, {});
@@ -47,7 +46,7 @@ export default function PayoutsPage() {
             <p className="text-zinc-400 mt-1">Manage your earnings and requests</p>
           </div>
           <Link href="/payouts/review">
-            <Button className="bg-gradient-to-r from-rose-500 to-orange-500 hover:from-rose-600 hover:to-orange-600 text-white">
+            <Button className="bg-linear-to-r from-rose-500 to-orange-500 hover:from-rose-600 hover:to-orange-600 text-white">
               Review Requests
               <ArrowRight className="w-4 h-4 ml-2" />
             </Button>
@@ -67,10 +66,10 @@ export default function PayoutsPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-zinc-100">Payouts</h1>
-          <p className="text-zinc-400 mt-1">Manage your earnings and requests</p>
+          <p className="text-zinc-400 mt-1">Request payouts from your completed projects</p>
         </div>
         <Link href="/payouts/request">
-          <Button className="bg-gradient-to-r from-rose-500 to-orange-500 hover:from-rose-600 hover:to-orange-600 text-white shadow-lg shadow-rose-500/20">
+          <Button className="bg-linear-to-r from-rose-500 to-orange-500 hover:from-rose-600 hover:to-orange-600 text-white shadow-lg shadow-rose-500/20">
             <Plus className="w-4 h-4 mr-2" />
             Request Payout
           </Button>
@@ -80,13 +79,13 @@ export default function PayoutsPage() {
       {/* Balance Cards */}
       {editorStats && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <Card className="p-6 bg-gradient-to-br from-emerald-500/10 to-emerald-600/5 border-emerald-500/20">
+          <Card className="p-6 bg-linear-to-br from-emerald-500/10 to-emerald-600/5 border-emerald-500/20">
             <div className="flex items-center gap-4">
               <div className="w-12 h-12 rounded-xl bg-emerald-500/20 flex items-center justify-center">
                 <Wallet className="w-6 h-6 text-emerald-400" />
               </div>
               <div>
-                <p className="text-sm text-emerald-400/80">Available Balance</p>
+                <p className="text-sm text-emerald-400/80">Available Balance (completed projects)</p>
                 <p className="text-3xl font-bold text-emerald-400">
                   ₹{(editorStats.unlockedBalance ?? 0).toLocaleString()}
                 </p>
@@ -122,7 +121,7 @@ export default function PayoutsPage() {
           <Card className="p-8 bg-zinc-900/50 border-zinc-800 text-center">
             <Wallet className="w-12 h-12 text-zinc-600 mx-auto mb-4" />
             <h3 className="text-lg font-medium text-zinc-300">No payouts yet</h3>
-            <p className="text-zinc-500 mt-1">Complete milestones to earn money</p>
+            <p className="text-zinc-500 mt-1">Once your project is marked completed, your earnings appear here.</p>
           </Card>
         ) : (
           <div className="space-y-3">

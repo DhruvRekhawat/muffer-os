@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useQuery } from "convex/react";
 import { useMutation } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { useAuth } from "@/lib/auth";
@@ -10,6 +11,15 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Calendar, Users, Settings, Loader2, Edit2, Check, X } from "lucide-react";
 import { Id } from "@/convex/_generated/dataModel";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  AlertDialog,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 interface Project {
   _id: Id<"projects">;
@@ -17,7 +27,9 @@ interface Project {
   emoji?: string;
   background?: string;
   status: string;
+  pmId: Id<"users">;
   pmName: string;
+  editorIds: Id<"users">[];
   editorNames: string[];
   milestoneCount: number;
   completedMilestoneCount: number;
@@ -36,18 +48,34 @@ export function ProjectHeader({ project }: ProjectHeaderProps) {
   const [isEditing, setIsEditing] = useState(false);
   const [isEditingDueDate, setIsEditingDueDate] = useState(false);
   const [selectedEmoji, setSelectedEmoji] = useState(project.emoji || "🎬");
+  const [selectedEditorId, setSelectedEditorId] = useState<Id<"users"> | null>(null);
+  const [editorAssignError, setEditorAssignError] = useState<string>("");
+  const [isCompleteDialogOpen, setIsCompleteDialogOpen] = useState(false);
+  const [isCompletingProject, setIsCompletingProject] = useState(false);
+  const [completeProjectError, setCompleteProjectError] = useState<string>("");
   const [dueDate, setDueDate] = useState(
     project.dueDate ? new Date(project.dueDate).toISOString().split('T')[0] : ""
   );
   const [isLoading, setIsLoading] = useState(false);
+  const [isAssigningEditor, setIsAssigningEditor] = useState(false);
   
   const updateProject = useMutation(api.projects.updateProject);
+  const assignEditorToProject = useMutation(api.projects.assignEditorToProject);
   
-  const canManage = user?.role === "SUPER_ADMIN" || user?.role === "PM";
+  const canManageThisProject =
+    user?.role === "SUPER_ADMIN" ||
+    (user?.role === "PM" && user._id === project.pmId);
+  const editorsWithCount = useQuery(
+    api.users.getEditorsWithProjectCount,
+    canManageThisProject ? {} : "skip"
+  );
   
   const progress = project.milestoneCount > 0 
     ? Math.round((project.completedMilestoneCount / project.milestoneCount) * 100) 
     : 0;
+
+  const availableEditors =
+    (editorsWithCount ?? []).filter((e) => !project.editorIds.includes(e._id));
   
   const handleEmojiChange = async (emoji: string) => {
     setSelectedEmoji(emoji);
@@ -123,9 +151,89 @@ export function ProjectHeader({ project }: ProjectHeaderProps) {
             </div>
           </div>
           
-          <Button variant="outline" size="sm" className="border-zinc-700 text-zinc-400 hover:bg-zinc-800">
-            <Settings className="w-4 h-4" />
-          </Button>
+          <div className="flex items-center gap-2">
+            {canManageThisProject && project.status !== "COMPLETED" && (
+              <>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setCompleteProjectError("");
+                    setIsCompleteDialogOpen(true);
+                  }}
+                  className="border-zinc-700 text-zinc-300 hover:bg-zinc-800"
+                >
+                  Mark complete
+                </Button>
+
+                <AlertDialog
+                  open={isCompleteDialogOpen}
+                  onOpenChange={(open) => {
+                    setIsCompleteDialogOpen(open);
+                    if (!open) setCompleteProjectError("");
+                  }}
+                >
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>Mark project as completed?</AlertDialogTitle>
+                      <AlertDialogDescription>
+                        This will mark the project status as <b>Completed</b>. You can do this even if there are no milestones.
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+
+                    {completeProjectError && (
+                      <p className="text-sm text-red-400">{completeProjectError}</p>
+                    )}
+
+                    <AlertDialogFooter>
+                      <Button
+                        variant="outline"
+                        onClick={() => setIsCompleteDialogOpen(false)}
+                        disabled={isCompletingProject}
+                      >
+                        Cancel
+                      </Button>
+                      <Button
+                        onClick={async () => {
+                          setIsCompletingProject(true);
+                          setCompleteProjectError("");
+                          try {
+                            await updateProject({
+                              projectId: project._id,
+                              status: "COMPLETED",
+                            });
+                            setIsCompleteDialogOpen(false);
+                          } catch (e) {
+                            setCompleteProjectError(
+                              e instanceof Error ? e.message : "Failed to complete project"
+                            );
+                          } finally {
+                            setIsCompletingProject(false);
+                          }
+                        }}
+                        disabled={isCompletingProject}
+                        className="bg-emerald-600 hover:bg-emerald-700"
+                      >
+                        {isCompletingProject ? (
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                        ) : (
+                          "Confirm"
+                        )}
+                      </Button>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
+              </>
+            )}
+
+            <Button
+              variant="outline"
+              size="sm"
+              className="border-zinc-700 text-zinc-400 hover:bg-zinc-800"
+            >
+              <Settings className="w-4 h-4" />
+            </Button>
+          </div>
         </div>
         
         {/* Stats */}
@@ -163,7 +271,7 @@ export function ProjectHeader({ project }: ProjectHeaderProps) {
           <div className="p-3 bg-zinc-800/50 rounded-lg">
             <div className="flex items-center justify-between mb-1">
               <p className="text-xs text-zinc-500">Due Date</p>
-              {canManage && !isEditingDueDate && (
+              {canManageThisProject && !isEditingDueDate && (
                 <Button
                   variant="ghost"
                   size="sm"
@@ -174,7 +282,7 @@ export function ProjectHeader({ project }: ProjectHeaderProps) {
                 </Button>
               )}
             </div>
-            {isEditingDueDate && canManage ? (
+            {isEditingDueDate && canManageThisProject ? (
               <div className="flex items-center gap-2">
                 <Input
                   type="date"
@@ -224,6 +332,97 @@ export function ProjectHeader({ project }: ProjectHeaderProps) {
               </div>
             )}
           </div>
+        </div>
+
+        {/* Editors list + add editor (SA/PM only) */}
+        <div className="mt-4 flex flex-col gap-3">
+          <div className="flex flex-wrap gap-2">
+            {project.editorNames.length > 0 ? (
+              project.editorNames.map((name) => (
+                <Badge
+                  key={name}
+                  className="bg-zinc-800/70 text-zinc-200 border-zinc-700"
+                >
+                  {name}
+                </Badge>
+              ))
+            ) : (
+              <p className="text-sm text-zinc-500">No editors assigned yet.</p>
+            )}
+          </div>
+
+          {canManageThisProject && (
+            <div className="flex flex-col gap-2">
+              <div className="flex items-center gap-2">
+                <Select
+                  value={selectedEditorId ?? undefined}
+                  onValueChange={(v) => {
+                    setEditorAssignError("");
+                    setSelectedEditorId(v as Id<"users">);
+                  }}
+                  disabled={isAssigningEditor}
+                >
+                  <SelectTrigger className="bg-zinc-800/50 border-zinc-700 text-zinc-100">
+                    <SelectValue
+                      placeholder={
+                        availableEditors.length > 0
+                          ? "Select an editor to add…"
+                          : "No available editors"
+                      }
+                    />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {availableEditors.map((editor) => (
+                      <SelectItem key={editor._id} value={editor._id}>
+                        {editor.name} • {editor.projectCount} projects
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+
+                <Button
+                  size="sm"
+                  onClick={async () => {
+                    if (!selectedEditorId) return;
+                    setIsAssigningEditor(true);
+                    setEditorAssignError("");
+                    try {
+                      await assignEditorToProject({
+                        projectId: project._id,
+                        editorId: selectedEditorId,
+                      });
+                      setSelectedEditorId(null);
+                    } catch (e) {
+                      setEditorAssignError(
+                        e instanceof Error ? e.message : "Failed to add editor"
+                      );
+                    } finally {
+                      setIsAssigningEditor(false);
+                    }
+                  }}
+                  disabled={
+                    isAssigningEditor ||
+                    !selectedEditorId ||
+                    availableEditors.length === 0
+                  }
+                  className="bg-rose-600 hover:bg-rose-700"
+                >
+                  {isAssigningEditor ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    "Add"
+                  )}
+                </Button>
+              </div>
+
+              {editorAssignError && (
+                <p className="text-xs text-red-400">{editorAssignError}</p>
+              )}
+              <p className="text-xs text-zinc-500">
+                Shows each editor’s current active project count.
+              </p>
+            </div>
+          )}
         </div>
       </div>
     </Card>

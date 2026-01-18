@@ -121,6 +121,44 @@ export const submitDeliverable = mutation({
       submittedAt: Date.now(),
     });
     
+    // Hiring flow hook: if this is the editor's test project, mark READY_FOR_REVIEW
+    const project = await ctx.db.get(milestone.projectId);
+    if (
+      project?.isTestProject &&
+      project.testForEditorId &&
+      project.testForEditorId === user._id
+    ) {
+      const now = Date.now();
+      let hiring = await ctx.db
+        .query("editorHiring")
+        .withIndex("by_user", (q) => q.eq("userId", user._id))
+        .first();
+
+      if (!hiring) {
+        const hiringId = await ctx.db.insert("editorHiring", {
+          userId: user._id,
+          status: "READY_FOR_REVIEW",
+          ndaDocumentName: "Partner NDA-1.pdf",
+          testProjectId: project._id,
+          testMilestoneId: args.milestoneId,
+          testSubmissionId: submissionId,
+          testSubmittedAt: now,
+          createdAt: now,
+          updatedAt: now,
+        });
+        hiring = await ctx.db.get(hiringId);
+      } else {
+        await ctx.db.patch(hiring._id, {
+          status: "READY_FOR_REVIEW",
+          testProjectId: hiring.testProjectId ?? project._id,
+          testMilestoneId: hiring.testMilestoneId ?? args.milestoneId,
+          testSubmissionId: submissionId,
+          testSubmittedAt: now,
+          updatedAt: now,
+        });
+      }
+    }
+
     // Create system chat message
     await ctx.db.insert("chatMessages", {
       projectId: milestone.projectId,
@@ -203,15 +241,6 @@ export const approveSubmission = mutation({
       completedMilestoneCount: project.completedMilestoneCount + 1,
     });
     
-    // Unlock editor earnings
-    const editor = await ctx.db.get(submission.editorId);
-    if (editor) {
-      await ctx.db.patch(submission.editorId, {
-        unlockedBalance: (editor.unlockedBalance ?? 0) + milestone.payoutAmount,
-        lifetimeEarnings: (editor.lifetimeEarnings ?? 0) + milestone.payoutAmount,
-      });
-    }
-    
     // Unlock next milestone
     await ctx.runMutation(internal.milestones.unlockNextMilestone, {
       projectId: submission.projectId,
@@ -225,7 +254,7 @@ export const approveSubmission = mutation({
       senderName: user.name,
       senderRole: user.role,
       type: "SYSTEM",
-      content: `✅ ${user.name} approved "${milestone.title}" — ₹${milestone.payoutAmount.toLocaleString()} unlocked for ${submission.editorName}`,
+      content: `✅ ${user.name} approved "${milestone.title}"`,
       createdAt: Date.now(),
     });
     

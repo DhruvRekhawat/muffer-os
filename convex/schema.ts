@@ -61,6 +61,13 @@ const applicationStatus = v.union(
   v.literal("REJECTED")
 );
 
+const editorHiringStatus = v.union(
+  v.literal("ONBOARDING"),
+  v.literal("READY_FOR_REVIEW"),
+  v.literal("APPROVED"),
+  v.literal("REJECTED")
+);
+
 const missionType = v.union(
   v.literal("SPEED"),
   v.literal("VOLUME"),
@@ -79,6 +86,71 @@ const payoutStatus = v.union(
   v.literal("PAID"),
   v.literal("REJECTED")
 );
+
+const pricingUnit = v.union(v.literal("video"), v.literal("ad"));
+
+const addonCategory = v.union(
+  v.literal("voice"),
+  v.literal("graphics"),
+  v.literal("delivery"),
+  v.literal("format"),
+  v.literal("script"),
+  v.literal("other")
+);
+
+const couponType = v.union(
+  v.literal("percentage"),
+  v.literal("fixed"),
+  v.literal("fixed_price")
+);
+
+const bulkDiscountType = v.union(v.literal("percentage"), v.literal("fixed"));
+
+const addon = v.object({
+  id: v.string(),
+  name: v.string(),
+  price: v.number(),
+  description: v.optional(v.string()),
+  category: addonCategory,
+});
+
+const plan = v.object({
+  id: v.string(),
+  name: v.string(),
+  service: serviceType,
+  price: v.number(),
+  pricePerUnit: v.number(),
+  unit: pricingUnit,
+  includes: v.array(v.string()),
+  addons: v.array(addon),
+  features: v.array(v.string()),
+  popular: v.optional(v.boolean()),
+  custom: v.optional(v.boolean()),
+});
+
+const coupon = v.object({
+  id: v.string(),
+  code: v.string(),
+  type: couponType,
+  value: v.number(),
+  minOrderAmount: v.optional(v.number()),
+  maxDiscount: v.optional(v.number()),
+  validFrom: v.optional(v.number()),
+  validUntil: v.optional(v.number()),
+  usageLimit: v.optional(v.number()),
+  usedCount: v.optional(v.number()),
+  applicableServices: v.optional(v.array(serviceType)),
+  applicablePlanIds: v.optional(v.array(v.string())),
+  applicableAddonIds: v.optional(v.array(v.string())),
+  active: v.boolean(),
+});
+
+const bulkDiscountRule = v.object({
+  minQuantity: v.number(),
+  type: bulkDiscountType,
+  value: v.number(),
+  maxDiscount: v.optional(v.number()),
+});
 
 export default defineSchema({
   ...authTables,
@@ -99,6 +171,15 @@ export default defineSchema({
     tools: v.optional(v.array(v.string())),
     experience: v.optional(v.string()),
     canStartImmediately: v.optional(v.boolean()),
+
+    // Address (for onboarding)
+    addressLine1: v.optional(v.string()),
+    addressLine2: v.optional(v.string()),
+    city: v.optional(v.string()),
+    state: v.optional(v.string()),
+    postalCode: v.optional(v.string()),
+    country: v.optional(v.string()),
+
     payoutDetails: v.optional(v.object({
       method: v.union(v.literal("UPI"), v.literal("BANK")),
       upiId: v.optional(v.string()),
@@ -141,6 +222,15 @@ export default defineSchema({
     emoji: v.optional(v.string()),
     background: v.optional(v.string()),
     status: projectStatus,
+
+    // Hiring/Test project metadata
+    isTestProject: v.optional(v.boolean()),
+    testForEditorId: v.optional(v.id("users")),
+
+    // Summary / instructions (shown as a card above chat)
+    summary: v.optional(v.string()),
+    summaryUpdatedAt: v.optional(v.number()),
+    summaryUpdatedBy: v.optional(v.id("users")),
     
     // Denormalized for fast reads
     pmId: v.id("users"),
@@ -151,6 +241,13 @@ export default defineSchema({
     // Progress tracking
     milestoneCount: v.number(),
     completedMilestoneCount: v.number(),
+    
+    // Budget
+    budget: v.optional(v.number()),
+
+    // Payouts
+    // When set, editor earnings for this project have been unlocked to wallet balances.
+    payoutsUnlockedAt: v.optional(v.number()),
     
     // Dates
     dueDate: v.optional(v.number()),
@@ -248,6 +345,33 @@ export default defineSchema({
     .index("by_status", ["status"])
     .index("by_created", ["createdAt"]),
 
+  // Editor hiring/onboarding - post-signup gating + test project tracking
+  editorHiring: defineTable({
+    userId: v.id("users"),
+    status: editorHiringStatus,
+
+    // NDA acceptance
+    ndaDocumentName: v.string(), // e.g. "Partner NDA-1.pdf"
+    ndaAcceptedName: v.optional(v.string()),
+    ndaAcceptedAt: v.optional(v.number()),
+
+    // Test project linkage
+    testProjectId: v.optional(v.id("projects")),
+    testMilestoneId: v.optional(v.id("milestones")),
+    testSubmissionId: v.optional(v.id("submissions")),
+    testSubmittedAt: v.optional(v.number()),
+
+    // Review tracking
+    approvedBy: v.optional(v.id("users")),
+    approvedAt: v.optional(v.number()),
+
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_user", ["userId"])
+    .index("by_status", ["status"])
+    .index("by_updated", ["updatedAt"]),
+
   // Missions - gamification system
   missions: defineTable({
     title: v.string(),
@@ -320,5 +444,40 @@ export default defineSchema({
     .index("by_entity", ["entityType", "entityId"])
     .index("by_action", ["action"])
     .index("by_created", ["createdAt"]),
+
+  // Milestone templates - reusable milestone configurations
+  milestoneTemplates: defineTable({
+    name: v.string(),
+    milestones: v.array(v.object({
+      title: v.string(),
+      description: v.optional(v.string()),
+      payoutAmount: v.number(),
+      order: v.number(),
+    })),
+    createdAt: v.number(),
+    createdBy: v.id("users"),
+  })
+    .index("by_created", ["createdAt"]),
+
+  // Pricing configuration - single source of truth for public pricing
+  pricingConfig: defineTable({
+    key: v.literal("default"), // singleton key
+    plans: v.array(plan),
+    couponCodes: v.array(coupon),
+    bulkDiscountRules: v.array(bulkDiscountRule),
+    addonCategories: v.object({
+      voice: v.string(),
+      graphics: v.string(),
+      delivery: v.string(),
+      format: v.string(),
+      script: v.string(),
+      other: v.string(),
+    }),
+    version: v.number(),
+    updatedAt: v.number(),
+    updatedBy: v.optional(v.id("users")),
+  })
+    .index("by_key", ["key"])
+    .index("by_updated", ["updatedAt"]),
 });
 

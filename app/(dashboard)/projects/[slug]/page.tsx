@@ -7,6 +7,7 @@ import { useAuth } from "@/lib/auth";
 import { ProjectHeader } from "@/components/projects/project-header";
 import { MilestonesList } from "@/components/projects/milestones-list";
 import { ProjectChat } from "@/components/projects/project-chat";
+import { ProjectSummaryCard } from "@/components/projects/project-summary-card";
 import { ArrowLeft, Loader2 } from "lucide-react";
 import Link from "next/link";
 
@@ -70,7 +71,8 @@ export default function ProjectPage({ params }: ProjectPageProps) {
         </div>
         
         {/* Right panel - Milestones (takes 2/5 of width) */}
-        <div className="lg:col-span-2">
+        <div className="lg:col-span-2 space-y-6">
+          <ProjectSummaryCard projectId={project._id} />
           <MilestonesList 
             project={project} 
             milestones={milestones || []} 

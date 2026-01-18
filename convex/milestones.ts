@@ -131,6 +131,12 @@ export const createMilestone = mutation({
     if (args.assignedEditorId) {
       const editor = await ctx.db.get(args.assignedEditorId);
       if (editor) assignedEditorName = editor.name;
+
+      const isTestAssignment =
+        project.isTestProject === true && project.testForEditorId === editor?._id;
+      if (!isTestAssignment && editor && editor.status !== "ACTIVE") {
+        throw new Error("Editor is not approved yet");
+      }
     }
     
     const milestoneId = await ctx.db.insert("milestones", {
@@ -247,6 +253,11 @@ export const markMilestoneAsDone = mutation({
         await ctx.db.patch(milestone.projectId, {
           status: "COMPLETED",
         });
+
+        // Unlock editor wallet earnings for the completed project (idempotent).
+        await ctx.runMutation(internal.payouts.unlockProjectEarnings, {
+          projectId: milestone.projectId,
+        });
       }
       
       // Unlock next milestone
@@ -288,10 +299,19 @@ export const assignEditor = mutation({
     
     const milestone = await ctx.db.get(args.milestoneId);
     if (!milestone) throw new Error("Milestone not found");
+
+    const project = await ctx.db.get(milestone.projectId);
+    if (!project) throw new Error("Project not found");
     
     const editor = await ctx.db.get(args.editorId);
     if (!editor || editor.role !== "EDITOR") {
       throw new Error("Invalid editor");
+    }
+
+    const isTestAssignment =
+      project.isTestProject === true && project.testForEditorId === editor._id;
+    if (!isTestAssignment && editor.status !== "ACTIVE") {
+      throw new Error("Editor is not approved yet");
     }
     
     await ctx.db.patch(args.milestoneId, {
@@ -300,7 +320,6 @@ export const assignEditor = mutation({
     });
     
     // Also add editor to project if not already
-    const project = await ctx.db.get(milestone.projectId);
     if (project && !project.editorIds.includes(args.editorId)) {
       await ctx.db.patch(milestone.projectId, {
         editorIds: [...project.editorIds, args.editorId],
@@ -426,6 +445,11 @@ export const unlockNextMilestone = internalMutation({
       await ctx.db.patch(args.projectId, {
         status: "COMPLETED",
         completedMilestoneCount: allMilestones.length,
+      });
+
+      // Unlock editor wallet earnings for the completed project (idempotent).
+      await ctx.runMutation(internal.payouts.unlockProjectEarnings, {
+        projectId: args.projectId,
       });
     }
   },

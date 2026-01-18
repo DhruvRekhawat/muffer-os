@@ -11,8 +11,14 @@ import {
   UserPlus, 
   Wallet, 
   Settings,
+  ShoppingCart,
   ChevronRight,
-  ChevronLeft
+  ChevronLeft,
+  ChevronDown,
+  ChevronUp,
+  Sliders,
+  FileText,
+  DollarSign,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -59,6 +65,7 @@ type UserRole = "SUPER_ADMIN" | "PM" | "EDITOR";
 interface SidebarProps {
   user: {
     role?: UserRole;
+    status?: "INVITED" | "ACTIVE" | "REJECTED" | "SUSPENDED";
     name: string;
   };
 }
@@ -76,6 +83,18 @@ const navItems: NavItem[] = [
     href: "/dashboard", 
     icon: LayoutDashboard,
     roles: ["SUPER_ADMIN", "PM", "EDITOR"]
+  },
+  {
+    label: "Onboarding",
+    href: "/onboarding",
+    icon: FileText,
+    roles: ["PM", "EDITOR"],
+  },
+  { 
+    label: "Orders", 
+    href: "/orders", 
+    icon: ShoppingCart,
+    roles: ["SUPER_ADMIN"]
   },
   { 
     label: "Projects", 
@@ -108,6 +127,12 @@ const navItems: NavItem[] = [
     roles: ["SUPER_ADMIN", "EDITOR"]
   },
   { 
+    label: "Finance", 
+    href: "/finance", 
+    icon: DollarSign,
+    roles: ["SUPER_ADMIN"]
+  },
+  { 
     label: "Settings", 
     href: "/settings/profile", 
     icon: Settings,
@@ -118,13 +143,22 @@ const navItems: NavItem[] = [
 export function Sidebar({ user }: SidebarProps) {
   const pathname = usePathname();
   const { isCollapsed, setIsCollapsed } = useSidebar();
+  const [configureOpen, setConfigureOpen] = useState(false);
   
   // Default to EDITOR if role is undefined (should be bootstrapped, but handle gracefully)
   const userRole: UserRole = user.role || "EDITOR";
+  const isInvited = user.status === "INVITED";
   
-  const filteredNav = navItems.filter(item => 
-    item.roles.includes(userRole)
-  );
+  const filteredNav = navItems.filter((item) => {
+    if (!item.roles.includes(userRole)) return false;
+    // INVITED users should only see onboarding-safe areas.
+    if (isInvited && (item.href === "/projects" || item.href === "/people" || item.href === "/missions" || item.href === "/payouts" || item.href === "/orders" || item.href === "/finance" || item.href === "/hiring")) {
+      return false;
+    }
+    return true;
+  });
+  
+  const isConfigureActive = pathname.startsWith("/configure");
   
   const getRoleBadge = (role: UserRole) => {
     switch (role) {
@@ -154,7 +188,7 @@ export function Sidebar({ user }: SidebarProps) {
               "flex items-center gap-3 transition-all",
               isCollapsed && "justify-center"
             )}>
-              <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0">
+              <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0">
                 <span className="text-3xl font-bold" style={{ color: '#F70606' }}>m</span>
               </div>
               {!isCollapsed && (
@@ -213,14 +247,14 @@ export function Sidebar({ user }: SidebarProps) {
                 title={isCollapsed ? item.label : undefined}
               >
                 <item.icon className={cn(
-                  "w-5 h-5 transition-colors flex-shrink-0",
+                  "w-5 h-5 transition-colors shrink-0",
                   isActive ? "text-rose-400" : "text-zinc-500 group-hover:text-zinc-400"
                 )} />
                 {!isCollapsed && (
                   <>
                     <span className="flex-1">{item.label}</span>
                     {isActive && (
-                      <ChevronRight className="w-4 h-4 text-zinc-500 flex-shrink-0" />
+                      <ChevronRight className="w-4 h-4 text-zinc-500 shrink-0" />
                     )}
                   </>
                 )}
@@ -230,6 +264,62 @@ export function Sidebar({ user }: SidebarProps) {
               </Link>
             );
           })}
+          
+          {/* Configure Dropdown (Admin Only) */}
+          {userRole === "SUPER_ADMIN" && !isCollapsed && (
+            <div className="space-y-1">
+              <button
+                onClick={() => setConfigureOpen(!configureOpen)}
+                className={cn(
+                  "w-full flex items-center gap-3 rounded-xl text-sm font-medium transition-all group relative px-4 py-3",
+                  isConfigureActive
+                    ? "bg-zinc-800/80 text-zinc-100 shadow-sm" 
+                    : "text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/40"
+                )}
+              >
+                <Sliders className={cn(
+                  "w-5 h-5 transition-colors shrink-0",
+                  isConfigureActive ? "text-rose-400" : "text-zinc-500 group-hover:text-zinc-400"
+                )} />
+                <span className="flex-1 text-left">Configure</span>
+                {configureOpen ? (
+                  <ChevronUp className="w-4 h-4 text-zinc-500 shrink-0" />
+                ) : (
+                  <ChevronDown className="w-4 h-4 text-zinc-500 shrink-0" />
+                )}
+              </button>
+              
+              {configureOpen && (
+                <div className="ml-4 space-y-1 border-l border-zinc-800 pl-4">
+                  <Link
+                    href="/configure/pricing"
+                    className={cn(
+                      "flex items-center gap-3 rounded-lg text-sm transition-all px-3 py-2",
+                      pathname === "/configure/pricing"
+                        ? "bg-zinc-800/60 text-zinc-100"
+                        : "text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800/40"
+                    )}
+                  >
+                    <DollarSign className="w-4 h-4 shrink-0" />
+                    <span>Pricing</span>
+                  </Link>
+
+                  <Link
+                    href="/configure/templates"
+                    className={cn(
+                      "flex items-center gap-3 rounded-lg text-sm transition-all px-3 py-2",
+                      pathname === "/configure/templates"
+                        ? "bg-zinc-800/60 text-zinc-100" 
+                        : "text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800/40"
+                    )}
+                  >
+                    <FileText className="w-4 h-4 shrink-0" />
+                    <span>Templates</span>
+                  </Link>
+                </div>
+              )}
+            </div>
+          )}
         </nav>
         
         {/* User info */}
@@ -241,7 +331,7 @@ export function Sidebar({ user }: SidebarProps) {
             "flex items-center rounded-xl bg-zinc-800/30 transition-all",
             isCollapsed ? "px-2 py-2 justify-center" : "px-4 py-3 gap-3"
           )}>
-            <div className="w-9 h-9 rounded-full bg-gradient-to-br from-zinc-600 to-zinc-700 flex items-center justify-center text-zinc-300 text-sm font-medium flex-shrink-0">
+            <div className="w-9 h-9 rounded-full bg-linear-to-br from-zinc-600 to-zinc-700 flex items-center justify-center text-zinc-300 text-sm font-medium shrink-0">
               {user.name.charAt(0).toUpperCase()}
             </div>
             {!isCollapsed && (
