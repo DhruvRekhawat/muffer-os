@@ -97,12 +97,23 @@ export const submitDeliverable = mutation({
     if (milestone.status !== "IN_PROGRESS" && milestone.status !== "REJECTED") {
       throw new Error("Cannot submit for this milestone status");
     }
-    
-    // Validate Drive link format
-    if (!args.driveLink.includes("drive.google.com") && !args.driveLink.includes("docs.google.com")) {
-      throw new Error("Please provide a valid Google Drive link");
+
+    const project = await ctx.db.get(milestone.projectId);
+    const isEditorTestProject =
+      project?.isTestProject && project.testForEditorId === user._id;
+
+    // Validate link: for editor's test project, accept any link; otherwise require Google Drive/Docs
+    if (!isEditorTestProject) {
+      if (!args.driveLink.includes("drive.google.com") && !args.driveLink.includes("docs.google.com")) {
+        throw new Error("Please provide a valid Google Drive link");
+      }
+    } else {
+      const link = args.driveLink.trim();
+      if (!link || (!link.startsWith("http://") && !link.startsWith("https://"))) {
+        throw new Error("Please provide a valid link (https:// or http://)");
+      }
     }
-    
+
     // Create submission
     const submissionId = await ctx.db.insert("submissions", {
       milestoneId: args.milestoneId,
@@ -122,7 +133,6 @@ export const submitDeliverable = mutation({
     });
     
     // Hiring flow hook: if this is the editor's test project, mark READY_FOR_REVIEW
-    const project = await ctx.db.get(milestone.projectId);
     if (
       project?.isTestProject &&
       project.testForEditorId &&

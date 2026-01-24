@@ -43,6 +43,7 @@ interface Project {
   _id: Id<"projects">;
   name: string;
   status: string;
+  isTestProject?: boolean;
 }
 
 interface User {
@@ -581,10 +582,12 @@ export function MilestonesList({ project, milestones, currentUser }: MilestonesL
                   {canSubmit && (
                     <div className="space-y-3 p-4 bg-zinc-900/50 rounded-lg">
                       <div className="space-y-2">
-                        <label className="text-sm text-zinc-400">Google Drive Link</label>
+                        <label className="text-sm text-zinc-400">
+                          {project.isTestProject ? "Link" : "Google Drive Link"}
+                        </label>
                         <Input
                           type="url"
-                          placeholder="https://drive.google.com/..."
+                          placeholder={project.isTestProject ? "https://... (Drive, Dropbox, portfolio, etc.)" : "https://drive.google.com/..."}
                           value={driveLink}
                           onChange={(e) => setDriveLink(e.target.value)}
                           className="bg-zinc-800 border-zinc-700 text-zinc-100"

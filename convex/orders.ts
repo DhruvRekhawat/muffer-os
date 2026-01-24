@@ -1,5 +1,5 @@
 import { v } from "convex/values";
-import { query, internalMutation } from "./_generated/server";
+import { query, mutation, internalMutation } from "./_generated/server";
 import { auth } from "./auth";
 import { Id } from "./_generated/dataModel";
 
@@ -62,6 +62,52 @@ export const getOrder = query({
     }
     
     return await ctx.db.get(args.orderId);
+  },
+});
+
+// Create manual order (SUPER_ADMIN only). Does NOT create project.
+export const createManualOrder = mutation({
+  args: {
+    clientName: v.optional(v.string()),
+    clientEmail: v.optional(v.string()),
+    serviceType: v.union(
+      v.literal("EditMax"),
+      v.literal("ContentMax"),
+      v.literal("AdMax")
+    ),
+    planDetails: v.string(),
+    brief: v.string(),
+    totalPrice: v.number(),
+  },
+  handler: async (ctx, args) => {
+    const identity = await auth.getUserId(ctx);
+    if (!identity) throw new Error("Not authenticated");
+
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_token", (q) => q.eq("tokenIdentifier", identity))
+      .first();
+
+    if (!user || user.role !== "SUPER_ADMIN") {
+      throw new Error("Only SUPER_ADMIN can create manual orders");
+    }
+
+    if (args.totalPrice <= 0) {
+      throw new Error("Total price must be greater than 0");
+    }
+
+    const orderId = await ctx.db.insert("orders", {
+      serviceType: args.serviceType,
+      planDetails: args.planDetails.trim() || "Manual order",
+      brief: args.brief.trim() || `Manual order from ${args.clientName || args.clientEmail || "Customer"}`,
+      clientName: args.clientName?.trim() || undefined,
+      clientEmail: args.clientEmail?.trim() || undefined,
+      totalPrice: args.totalPrice,
+      status: "PAID",
+      createdAt: Date.now(),
+    });
+
+    return { orderId };
   },
 });
 
