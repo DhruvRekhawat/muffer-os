@@ -1,6 +1,6 @@
 "use client";
 
-import { Bell, Search, LogOut, Moon, Sun, User, Settings } from "lucide-react";
+import { Search, LogOut, Moon, Sun, User, Settings } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useSignOut } from "@/lib/auth";
@@ -52,16 +52,6 @@ export function Topbar({ user }: TopbarProps) {
           ) : (
             <Moon className="w-5 h-5" />
           )}
-        </Button>
-        
-        {/* Notifications */}
-        <Button
-          variant="ghost"
-          size="icon"
-          className="text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800/50 relative"
-        >
-          <Bell className="w-5 h-5" />
-          <span className="absolute top-2 right-2 w-2 h-2 bg-rose-500 rounded-full" />
         </Button>
         
         {/* User menu */}

@@ -16,11 +16,12 @@ import {
   Sparkles,
   Video,
   Megaphone,
-  Film
+  Film,
+  Package
 } from "lucide-react";
 import Link from "next/link";
 
-type ServiceType = "EditMax" | "ContentMax" | "AdMax";
+type ServiceType = "EditMax" | "ContentMax" | "AdMax" | "Other";
 
 const serviceOptions = [
   { 
@@ -43,6 +44,13 @@ const serviceOptions = [
     description: "Advertisement production",
     icon: Megaphone,
     color: "from-orange-500 to-red-500"
+  },
+  { 
+    value: "Other" as ServiceType, 
+    label: "Other", 
+    description: "Other services",
+    icon: Package,
+    color: "from-zinc-500 to-zinc-600"
   },
 ];
 
@@ -120,7 +128,7 @@ export default function NewProjectPage() {
         {/* Service Type */}
         <div className="space-y-3">
           <Label className="text-zinc-300">Service Type</Label>
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
             {serviceOptions.map((service) => (
               <button
                 key={service.value}

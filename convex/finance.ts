@@ -7,7 +7,7 @@ import type { QueryCtx } from "./_generated/server";
 type Bucket = "day" | "month";
 type ProjectStatus = "ACTIVE" | "AT_RISK" | "DELAYED" | "COMPLETED";
 type OrderStatus = "PAID" | "IN_PROGRESS" | "COMPLETED";
-type ServiceType = "EditMax" | "ContentMax" | "AdMax";
+type ServiceType = "EditMax" | "ContentMax" | "AdMax" | "Other";
 type MilestoneStatus = "LOCKED" | "IN_PROGRESS" | "SUBMITTED" | "APPROVED" | "REJECTED";
 
 function clampRange(args: { from?: number; to?: number }) {
@@ -70,6 +70,7 @@ export const getFinanceOverview = query({
       EditMax: 0,
       ContentMax: 0,
       AdMax: 0,
+      Other: 0,
     };
     for (const o of ordersInRange) {
       revenueByService[o.serviceType] = (revenueByService[o.serviceType] || 0) + o.totalPrice;

@@ -73,7 +73,8 @@ export const createManualOrder = mutation({
     serviceType: v.union(
       v.literal("EditMax"),
       v.literal("ContentMax"),
-      v.literal("AdMax")
+      v.literal("AdMax"),
+      v.literal("Other")
     ),
     planDetails: v.string(),
     brief: v.string(),
@@ -120,7 +121,8 @@ export const createOrderExternal = internalMutation({
     service: v.union(
       v.literal("EditMax"),
       v.literal("ContentMax"),
-      v.literal("AdMax")
+      v.literal("AdMax"),
+      v.literal("Other")
     ),
     totalPrice: v.number(),
     brief: v.optional(v.string()),

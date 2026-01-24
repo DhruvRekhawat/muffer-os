@@ -37,7 +37,7 @@ export default function OrdersPage() {
   const [manualForm, setManualForm] = useState({
     clientName: "",
     clientEmail: "",
-    serviceType: "EditMax" as "EditMax" | "ContentMax" | "AdMax",
+    serviceType: "EditMax" as "EditMax" | "ContentMax" | "AdMax" | "Other",
     planDetails: "",
     brief: "",
     totalPrice: "",
@@ -72,6 +72,8 @@ export default function OrdersPage() {
         return <Badge className="bg-purple-500/10 text-purple-400 border-purple-500/20">ContentMax</Badge>;
       case "AdMax":
         return <Badge className="bg-orange-500/10 text-orange-400 border-orange-500/20">AdMax</Badge>;
+      case "Other":
+        return <Badge className="bg-zinc-500/10 text-zinc-400 border-zinc-500/20">Other</Badge>;
       default:
         return null;
     }
@@ -205,7 +207,7 @@ export default function OrdersPage() {
                 <Label className="text-zinc-300">Service type</Label>
                 <Select
                   value={manualForm.serviceType}
-                  onValueChange={(v) => setManualForm((f) => ({ ...f, serviceType: v as "EditMax" | "ContentMax" | "AdMax" }))}
+                  onValueChange={(v) => setManualForm((f) => ({ ...f, serviceType: v as "EditMax" | "ContentMax" | "AdMax" | "Other" }))}
                 >
                   <SelectTrigger className="bg-zinc-800/50 border-zinc-700 text-zinc-100 w-full">
                     <SelectValue />
@@ -214,6 +216,7 @@ export default function OrdersPage() {
                     <SelectItem value="EditMax">EditMax</SelectItem>
                     <SelectItem value="ContentMax">ContentMax</SelectItem>
                     <SelectItem value="AdMax">AdMax</SelectItem>
+                    <SelectItem value="Other">Other</SelectItem>
                   </SelectContent>
                 </Select>
               </div>

@@ -2,7 +2,7 @@ import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
 import { auth } from "./auth";
 
-type ServiceType = "EditMax" | "ContentMax" | "AdMax";
+type ServiceType = "EditMax" | "ContentMax" | "AdMax" | "Other";
 type PricingUnit = "video" | "ad";
 type AddonCategory = "voice" | "graphics" | "delivery" | "format" | "script" | "other";
 type CouponType = "percentage" | "fixed" | "fixed_price";
@@ -353,7 +353,7 @@ export const upsertPricingConfig = mutation({
       v.object({
         id: v.string(),
         name: v.string(),
-        service: v.union(v.literal("EditMax"), v.literal("ContentMax"), v.literal("AdMax")),
+        service: v.union(v.literal("EditMax"), v.literal("ContentMax"), v.literal("AdMax"), v.literal("Other")),
         price: v.number(),
         pricePerUnit: v.number(),
         unit: v.union(v.literal("video"), v.literal("ad")),
@@ -392,7 +392,7 @@ export const upsertPricingConfig = mutation({
         usageLimit: v.optional(v.number()),
         usedCount: v.optional(v.number()),
         applicableServices: v.optional(
-          v.array(v.union(v.literal("EditMax"), v.literal("ContentMax"), v.literal("AdMax")))
+          v.array(v.union(v.literal("EditMax"), v.literal("ContentMax"), v.literal("AdMax"), v.literal("Other")))
         ),
         applicablePlanIds: v.optional(v.array(v.string())),
         applicableAddonIds: v.optional(v.array(v.string())),

@@ -46,7 +46,8 @@ const orderStatus = v.union(
 const serviceType = v.union(
   v.literal("EditMax"),
   v.literal("ContentMax"),
-  v.literal("AdMax")
+  v.literal("AdMax"),
+  v.literal("Other")
 );
 
 const messageType = v.union(

@@ -720,6 +720,7 @@ export default function PricingPage() {
                         <SelectItem value="EditMax">EditMax</SelectItem>
                         <SelectItem value="ContentMax">ContentMax</SelectItem>
                         <SelectItem value="AdMax">AdMax</SelectItem>
+                        <SelectItem value="Other">Other</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>

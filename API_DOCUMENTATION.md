@@ -47,7 +47,7 @@ Content-Type: application/json
 | `phone` | string | Yes | Customer phone number |
 | `email` | string | Yes | Customer email address |
 | `company` | string | No | Company name (optional) |
-| `service` | string | Yes | Service type: `"EditMax"`, `"ContentMax"`, or `"AdMax"` |
+| `service` | string | Yes | Service type: `"EditMax"`, `"ContentMax"`, `"AdMax"`, or `"Other"` |
 | `totalPrice` | number | Yes | Total order price |
 | `brief` | string | No | Project brief/description |
 | `editMaxPlan` | string | No | EditMax plan type (if service is EditMax) |
@@ -112,7 +112,7 @@ curl -X POST https://YOUR_CONVEX_DEPLOYMENT_URL/api/orders \
 **400 Bad Request** - Invalid service type
 ```json
 {
-  "error": "Invalid service type. Must be EditMax, ContentMax, or AdMax"
+  "error": "Invalid service type. Must be EditMax, ContentMax, AdMax, or Other"
 }
 ```
 
@@ -262,7 +262,7 @@ export async function POST(request: NextRequest) {
         phone: customerDetails.phone,
         email: customerDetails.email,
         company: customerDetails.companyName || null,
-        service: selectedPlan.service, // "EditMax", "ContentMax", or "AdMax"
+        service: selectedPlan.service, // "EditMax", "ContentMax", "AdMax", or "Other"
         totalPrice: total,
         brief: customerDetails.specialRequests || null,
         addOns: selectedAddons?.map((addon: any) => addon.id) || [],
@@ -318,6 +318,7 @@ export async function POST(request: NextRequest) {
    - `"EditMax"` - Video editing service
    - `"ContentMax"` - Content creation service
    - `"AdMax"` - Advertisement production service
+   - `"Other"` - Other services
 
 5. **Response Times**: These are server-side operations that may take a few seconds. Implement appropriate timeouts in your integration.
 

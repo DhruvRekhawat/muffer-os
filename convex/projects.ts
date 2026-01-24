@@ -155,7 +155,8 @@ export const createProject = mutation({
     serviceType: v.union(
       v.literal("EditMax"),
       v.literal("ContentMax"),
-      v.literal("AdMax")
+      v.literal("AdMax"),
+      v.literal("Other")
     ),
     planDetails: v.string(),
     brief: v.string(),
@@ -451,7 +452,8 @@ export const createProjectAndAssignEditor = mutation({
     serviceType: v.union(
       v.literal("EditMax"),
       v.literal("ContentMax"),
-      v.literal("AdMax")
+      v.literal("AdMax"),
+      v.literal("Other")
     ),
     totalPrice: v.number(),
     pmId: v.optional(v.id("users")),
@@ -608,9 +610,14 @@ function getDefaultMilestones(serviceType: string, totalPrice: number) {
       { title: "Motion Graphics", description: "Add animations and graphics", payout: totalPrice * 0.25 },
       { title: "Final Export", description: "Multi-format export", payout: totalPrice * 0.25 },
     ],
+    Other: [
+      { title: "First Draft", description: "Initial draft or deliverable", payout: totalPrice * 0.4 },
+      { title: "Revisions", description: "Feedback and revisions", payout: totalPrice * 0.3 },
+      { title: "Final Delivery", description: "Final deliverable", payout: totalPrice * 0.3 },
+    ],
   };
-  
-  return milestones[serviceType as keyof typeof milestones] || milestones.EditMax;
+
+  return milestones[serviceType as keyof typeof milestones] || milestones.Other;
 }
 
 // Create project from existing order (admin UI)
@@ -751,7 +758,8 @@ export const createProjectFromOrder = internalMutation({
     service: v.union(
       v.literal("EditMax"),
       v.literal("ContentMax"),
-      v.literal("AdMax")
+      v.literal("AdMax"),
+      v.literal("Other")
     ),
     editMaxPlan: v.optional(v.string()),
     adMaxStyle: v.optional(v.string()),

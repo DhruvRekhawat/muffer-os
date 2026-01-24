@@ -97,17 +97,22 @@ export default function FinancePage() {
 
   const revenueTotal = overview?.revenueTotal ?? 0;
   const revenueByService = useMemo(
-    () => overview?.revenueByService ?? { EditMax: 0, ContentMax: 0, AdMax: 0 },
+    () => overview?.revenueByService ?? { EditMax: 0, ContentMax: 0, AdMax: 0, Other: 0 },
     [overview]
   );
 
   const serviceMix = useMemo(() => {
-    const total = revenueByService.EditMax + revenueByService.ContentMax + revenueByService.AdMax;
+    const total =
+      revenueByService.EditMax +
+      revenueByService.ContentMax +
+      revenueByService.AdMax +
+      (revenueByService.Other ?? 0);
     const pct = (v: number) => (total > 0 ? (v / total) * 100 : 0);
     return [
       { key: "EditMax", value: revenueByService.EditMax, pct: pct(revenueByService.EditMax) },
       { key: "ContentMax", value: revenueByService.ContentMax, pct: pct(revenueByService.ContentMax) },
       { key: "AdMax", value: revenueByService.AdMax, pct: pct(revenueByService.AdMax) },
+      { key: "Other", value: revenueByService.Other ?? 0, pct: pct(revenueByService.Other ?? 0) },
     ] as const;
   }, [revenueByService]);
 

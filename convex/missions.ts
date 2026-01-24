@@ -146,7 +146,8 @@ export const createMission = mutation({
     eligibleServiceTypes: v.optional(v.array(v.union(
       v.literal("EditMax"),
       v.literal("ContentMax"),
-      v.literal("AdMax")
+      v.literal("AdMax"),
+      v.literal("Other")
     ))),
     eligibleEditorIds: v.optional(v.array(v.id("users"))),
   },

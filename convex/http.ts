@@ -56,13 +56,13 @@ const createOrderHandler = httpAction(async (ctx, request) => {
         );
       }
       
-      // Map service type from Prisma enum to Convex union
-      let serviceType: "EditMax" | "ContentMax" | "AdMax";
-      if (body.service === "EditMax" || body.service === "ContentMax" || body.service === "AdMax") {
+      // Map service type from external API to Convex union
+      let serviceType: "EditMax" | "ContentMax" | "AdMax" | "Other";
+      if (body.service === "EditMax" || body.service === "ContentMax" || body.service === "AdMax" || body.service === "Other") {
         serviceType = body.service;
       } else {
         return new Response(
-          JSON.stringify({ error: "Invalid service type. Must be EditMax, ContentMax, or AdMax" }),
+          JSON.stringify({ error: "Invalid service type. Must be EditMax, ContentMax, AdMax, or Other" }),
           { 
             status: 400,
             headers: { "Content-Type": "application/json" }

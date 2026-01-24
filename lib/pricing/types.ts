@@ -1,4 +1,4 @@
-export type ServiceType = "EditMax" | "ContentMax" | "AdMax";
+export type ServiceType = "EditMax" | "ContentMax" | "AdMax" | "Other";
 
 export type PricingUnit = "video" | "ad";
 
