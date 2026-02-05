@@ -6,8 +6,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card } from "@/components/ui/card";
-import { Loader2, Mail, Lock, Sparkles } from "lucide-react";
+import { Loader2, Mail, Lock } from "lucide-react";
 import Link from "next/link";
+import Image from "next/image";
 
 export default function LoginPage() {
   const [email, setEmail] = useState("");
@@ -40,10 +41,14 @@ export default function LoginPage() {
     <Card className="p-8 bg-zinc-900/80 backdrop-blur-xl border-zinc-800/50 shadow-2xl">
       <div className="text-center mb-8">
         <div className="flex items-center justify-center gap-2 mb-4">
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-rose-500 to-orange-500 flex items-center justify-center">
-            <Sparkles className="w-5 h-5 text-white" />
-          </div>
-          <span className="text-2xl font-bold text-zinc-100 tracking-tight">Muffer</span>
+          <Image
+            src="/logo.svg"
+            alt="Muffer"
+            width={140}
+            height={31}
+            className="h-8 w-auto"
+            priority
+          />
         </div>
         <p className="text-zinc-400">Production OS for Video Services</p>
       </div>

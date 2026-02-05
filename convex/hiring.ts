@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 import { query, mutation, internalMutation } from "./_generated/server";
 import { auth } from "./auth";
+import { notifyUser } from "./notifications";
 
 // Get all applications (SA only)
 export const listApplications = query({
@@ -186,6 +187,17 @@ export const approveApplication = mutation({
       entityId: args.applicationId,
       metadata: { editorEmail: application.email, newUserId: userId },
       createdAt: Date.now(),
+    });
+
+    // Notify the new editor about approval (using the newly created user ID)
+    await notifyUser(ctx, {
+      userId,
+      type: "editor.hiring.decision",
+      title: "Application Approved!",
+      message: "Welcome to Muffer! Your editor application has been approved.",
+      data: {
+        link: "/auth/login",
+      },
     });
     
     return { applicationId: args.applicationId, userId };

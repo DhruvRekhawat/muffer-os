@@ -285,6 +285,18 @@ export default function FinancePage() {
 
           <Card className="p-6 bg-zinc-900/50 border-zinc-800">
             <div className="flex items-center gap-4">
+              <div className="w-12 h-12 rounded-xl bg-violet-500/10 flex items-center justify-center">
+                <Percent className="w-6 h-6 text-violet-400" />
+              </div>
+              <div>
+                <p className="text-sm text-zinc-500">18% of total revenue</p>
+                <p className="text-2xl font-bold text-zinc-100">{formatINR(overview.revenueTotal * 0.18)}</p>
+              </div>
+            </div>
+          </Card>
+
+          <Card className="p-6 bg-zinc-900/50 border-zinc-800">
+            <div className="flex items-center gap-4">
               <div className="w-12 h-12 rounded-xl bg-amber-500/10 flex items-center justify-center">
                 <PiggyBank className="w-6 h-6 text-amber-400" />
               </div>

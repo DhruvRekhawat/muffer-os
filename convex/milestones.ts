@@ -99,7 +99,6 @@ export const createMilestone = mutation({
     title: v.string(),
     description: v.optional(v.string()),
     dueDate: v.optional(v.number()),
-    payoutAmount: v.number(),
     assignedEditorId: v.optional(v.id("users")),
   },
   handler: async (ctx, args) => {
@@ -146,7 +145,6 @@ export const createMilestone = mutation({
       description: args.description,
       order,
       dueDate: args.dueDate,
-      payoutAmount: args.payoutAmount,
       assignedEditorId: args.assignedEditorId,
       assignedEditorName,
       status: order === 1 ? "IN_PROGRESS" : "LOCKED",
@@ -169,7 +167,6 @@ export const updateMilestone = mutation({
     title: v.optional(v.string()),
     description: v.optional(v.string()),
     dueDate: v.optional(v.number()),
-    payoutAmount: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     const identity = await auth.getUserId(ctx);
@@ -187,19 +184,10 @@ export const updateMilestone = mutation({
     const milestone = await ctx.db.get(args.milestoneId);
     if (!milestone) throw new Error("Milestone not found");
     
-    // Check if project is completed - payout amounts are locked until project is completed
-    const project = await ctx.db.get(milestone.projectId);
-    if (project && project.status !== "COMPLETED" && args.payoutAmount !== undefined) {
-      throw new Error("Cannot change payout amount until project is marked as done");
-    }
-    
     const updates: Record<string, unknown> = {};
     if (args.title !== undefined) updates.title = args.title;
     if (args.description !== undefined) updates.description = args.description;
     if (args.dueDate !== undefined) updates.dueDate = args.dueDate;
-    if (args.payoutAmount !== undefined) {
-      updates.payoutAmount = args.payoutAmount;
-    }
     
     await ctx.db.patch(args.milestoneId, updates);
     return args.milestoneId;

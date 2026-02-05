@@ -2,7 +2,10 @@ import { v } from "convex/values";
 import { query, mutation, internalMutation } from "./_generated/server";
 import { auth } from "./auth";
 import { Id } from "./_generated/dataModel";
+import { MAX_ACTIVE_PROJECTS } from "../lib/constants";
+import { calculatePayoutPreview } from "./payoutEngine";
 import { internal } from "./_generated/api";
+import { notifyUser } from "./notifications";
 
 // Generate URL-safe slug from name
 function generateSlug(name: string): string {
@@ -58,8 +61,21 @@ export const listProjects = query({
     
     // Apply role-based filtering
     if (user.role === "EDITOR") {
-      // Editors only see projects they're assigned to
-      projects = projects.filter(p => p.editorIds.includes(user._id));
+      // Editors see projects they're assigned to OR have a PENDING/ACCEPTED invitation for
+      const invitedProjectIds = await ctx.db
+        .query("projectInvitations")
+        .withIndex("by_editor", (q) => q.eq("editorId", user._id))
+        .filter((q) =>
+          q.or(
+            q.eq(q.field("status"), "PENDING"),
+            q.eq(q.field("status"), "ACCEPTED")
+          )
+        )
+        .collect()
+        .then((invs) => [...new Set(invs.map((i) => i.projectId))]);
+      projects = projects.filter(
+        (p) => p.editorIds.includes(user._id) || invitedProjectIds.includes(p._id)
+      );
     } else if (user.role === "PM") {
       // PMs see their own projects
       projects = projects.filter(p => p.pmId === user._id);
@@ -98,15 +114,32 @@ export const getProjectBySlug = query({
       .first();
     
     if (!project) return null;
-    
+
     // Check access
-    if (user.role === "EDITOR" && !project.editorIds.includes(user._id)) {
-      return null;
+    if (user.role === "EDITOR") {
+      const isAssigned = project.editorIds.includes(user._id);
+      if (!isAssigned) {
+        // Allow access if editor has a PENDING or ACCEPTED invitation for this project
+        const invitation = await ctx.db
+          .query("projectInvitations")
+          .withIndex("by_project", (q) => q.eq("projectId", project._id))
+          .filter((q) =>
+            q.and(
+              q.eq(q.field("editorId"), user._id),
+              q.or(
+                q.eq(q.field("status"), "PENDING"),
+                q.eq(q.field("status"), "ACCEPTED")
+              )
+            )
+          )
+          .first();
+        if (!invitation) return null;
+      }
     }
     if (user.role === "PM" && project.pmId !== user._id) {
       return null;
     }
-    
+
     return project;
   },
 });
@@ -137,8 +170,24 @@ export const getProjectForCurrentUser = query({
     if (!project) return null;
 
     // Check access
-    if (user.role === "EDITOR" && !project.editorIds.includes(user._id)) {
-      return null;
+    if (user.role === "EDITOR") {
+      const isAssigned = project.editorIds.includes(user._id);
+      if (!isAssigned) {
+        const invitation = await ctx.db
+          .query("projectInvitations")
+          .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
+          .filter((q) =>
+            q.and(
+              q.eq(q.field("editorId"), user._id),
+              q.or(
+                q.eq(q.field("status"), "PENDING"),
+                q.eq(q.field("status"), "ACCEPTED")
+              )
+            )
+          )
+          .first();
+        if (!invitation) return null;
+      }
     }
     if (user.role === "PM" && project.pmId !== user._id) {
       return null;
@@ -170,6 +219,14 @@ export const createProject = mutation({
     background: v.optional(v.string()),
     dueDate: v.optional(v.number()),
     pmId: v.optional(v.id("users")),
+    
+    // SKU and billing
+    skuCode: v.optional(v.string()),
+    billableMinutes: v.optional(v.number()),
+    difficultyFactor: v.optional(v.number()),
+    editorCapAmount: v.optional(v.number()),
+    incentivePoolAmount: v.optional(v.number()),
+    deadlineAt: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     const identity = await auth.getUserId(ctx);
@@ -208,6 +265,25 @@ export const createProject = mutation({
       if (pm) pmName = pm.name;
     }
     
+    // Calculate editor cap and incentive pool from SKU if provided
+    let editorCapAmount = args.editorCapAmount;
+    let incentivePoolAmount = args.incentivePoolAmount;
+    let billableMinutes = args.billableMinutes;
+    
+    if (args.skuCode) {
+      const sku = await ctx.db
+        .query("skuCatalog")
+        .withIndex("by_code", (q) => q.eq("skuCode", args.skuCode!))
+        .filter((q) => q.eq(q.field("isActive"), true))
+        .first();
+      
+      if (sku) {
+        billableMinutes = billableMinutes ?? (sku.billableMinutesBase * (args.difficultyFactor ?? sku.difficultyFactorDefault));
+        editorCapAmount = editorCapAmount ?? Math.round(args.totalPrice * sku.editorBudgetPct);
+        incentivePoolAmount = incentivePoolAmount ?? Math.round(args.totalPrice * sku.incentivePoolPct);
+      }
+    }
+    
     // Create project
     const slug = generateSlug(args.name);
     const projectId = await ctx.db.insert("projects", {
@@ -224,6 +300,13 @@ export const createProject = mutation({
       milestoneCount: 0,
       completedMilestoneCount: 0,
       dueDate: args.dueDate,
+      skuCode: args.skuCode,
+      billableMinutes,
+      difficultyFactor: args.difficultyFactor,
+      editorCapAmount,
+      incentivePoolAmount,
+      incentivePoolRemaining: incentivePoolAmount,
+      deadlineAt: args.deadlineAt,
       createdAt: Date.now(),
     });
     
@@ -237,7 +320,6 @@ export const createProject = mutation({
         title: defaultMilestones[i].title,
         description: defaultMilestones[i].description,
         order: i + 1,
-        payoutAmount: defaultMilestones[i].payout,
         status: i === 0 ? "IN_PROGRESS" : "LOCKED",
         createdAt: Date.now(),
       });
@@ -260,6 +342,254 @@ export const createProject = mutation({
     });
     
     return { projectId, slug };
+  },
+});
+
+// Create order and project together with editor invitations (unified flow)
+export const createOrderAndProject = mutation({
+  args: {
+    // Order fields
+    clientName: v.optional(v.string()),
+    clientEmail: v.optional(v.string()),
+    serviceType: v.union(
+      v.literal("EditMax"),
+      v.literal("ContentMax"),
+      v.literal("AdMax"),
+      v.literal("Other")
+    ),
+    planDetails: v.string(),
+    brief: v.string(),
+    totalPrice: v.number(),
+    
+    // Project fields
+    projectName: v.string(),
+    emoji: v.optional(v.string()),
+    background: v.optional(v.string()),
+    skuCode: v.optional(v.string()),
+    billableMinutes: v.optional(v.number()),
+    difficultyFactor: v.optional(v.number()),
+    editorCapAmount: v.optional(v.number()),
+    deadlineAt: v.optional(v.number()),
+    
+    // Editor invitations
+    editorIds: v.array(v.id("users")),
+    // PM assignment (direct)
+    pmId: v.id("users"),
+  },
+  handler: async (ctx, args) => {
+    const identity = await auth.getUserId(ctx);
+    if (!identity) throw new Error("Not authenticated");
+    
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_token", (q) => q.eq("tokenIdentifier", identity))
+      .first();
+    
+    if (!user || (user.role !== "SUPER_ADMIN" && user.role !== "PM")) {
+      throw new Error("Unauthorized");
+    }
+    if (user.role === "PM" && user.status !== "ACTIVE") {
+      throw new Error("Not approved yet");
+    }
+    
+    if (args.totalPrice <= 0) {
+      throw new Error("Total price must be greater than 0");
+    }
+    
+    // PM assignment: PM can only assign self; SUPER_ADMIN can assign any PM/SUPER_ADMIN
+    if (user.role === "PM" && args.pmId !== user._id) {
+      throw new Error("You can only assign yourself as project manager");
+    }
+    const assignedUser = await ctx.db.get(args.pmId);
+    if (!assignedUser) {
+      throw new Error("Selected project manager not found");
+    }
+    if (assignedUser.role !== "PM" && assignedUser.role !== "SUPER_ADMIN") {
+      throw new Error("Selected user is not a project manager or admin");
+    }
+    const pmId = args.pmId as Id<"users">;
+    const pmName = assignedUser.name;
+    
+    // 1. Create order
+    const orderId = await ctx.db.insert("orders", {
+      serviceType: args.serviceType,
+      planDetails: args.planDetails,
+      brief: args.brief,
+      clientName: args.clientName,
+      clientEmail: args.clientEmail,
+      totalPrice: args.totalPrice,
+      status: "PAID",
+      createdAt: Date.now(),
+    });
+    
+    // 2. Calculate SKU-based values if SKU provided
+    let editorCapAmount = args.editorCapAmount;
+    let incentivePoolAmount: number | undefined;
+    let billableMinutes = args.billableMinutes;
+    
+    if (args.skuCode) {
+      const sku = await ctx.db
+        .query("skuCatalog")
+        .withIndex("by_code", (q) => q.eq("skuCode", args.skuCode!))
+        .filter((q) => q.eq(q.field("isActive"), true))
+        .first();
+      
+      if (sku) {
+        billableMinutes = billableMinutes ?? (sku.billableMinutesBase * (args.difficultyFactor ?? sku.difficultyFactorDefault));
+        editorCapAmount = editorCapAmount ?? Math.round(args.totalPrice * sku.editorBudgetPct);
+        incentivePoolAmount = Math.round(args.totalPrice * sku.incentivePoolPct);
+      }
+    }
+    
+    // 3. Create project with billing fields
+    const slug = generateSlug(args.projectName);
+    const projectId = await ctx.db.insert("projects", {
+      orderId,
+      name: args.projectName,
+      slug,
+      emoji: args.emoji || "🎬",
+      background: args.background,
+      status: "ACTIVE",
+      pmId: pmId as Id<"users">,
+      pmName,
+      editorIds: [],
+      editorNames: [],
+      milestoneCount: 0,
+      completedMilestoneCount: 0,
+      skuCode: args.skuCode,
+      billableMinutes,
+      difficultyFactor: args.difficultyFactor,
+      editorCapAmount,
+      incentivePoolAmount,
+      incentivePoolRemaining: incentivePoolAmount,
+      deadlineAt: args.deadlineAt,
+      createdAt: Date.now(),
+    });
+    
+    // 4. Create default milestones
+    const defaultMilestones = getDefaultMilestones(args.serviceType, args.totalPrice);
+    
+    for (let i = 0; i < defaultMilestones.length; i++) {
+      await ctx.db.insert("milestones", {
+        projectId,
+        projectName: args.projectName,
+        title: defaultMilestones[i].title,
+        description: defaultMilestones[i].description,
+        order: i + 1,
+        status: i === 0 ? "IN_PROGRESS" : "LOCKED",
+        createdAt: Date.now(),
+      });
+    }
+    
+    // Update milestone count
+    await ctx.db.patch(projectId, {
+      milestoneCount: defaultMilestones.length,
+    });
+    
+    // 5. Send invitations to each editor
+    for (const editorId of args.editorIds) {
+      try {
+        // Get editor details
+        const editor = await ctx.db.get(editorId);
+        if (!editor || editor.role !== "EDITOR" || editor.status !== "ACTIVE") {
+          console.warn(`Skipping editor ${editorId}: not active or not an editor`);
+          continue;
+        }
+        
+        // Check editor capacity
+        const activeProjects = await ctx.db
+          .query("projects")
+          .filter((q) =>
+            q.and(
+              q.neq(q.field("status"), "COMPLETED"),
+              q.eq(q.field("isTestProject"), false)
+            )
+          )
+          .collect();
+        
+        const editorActiveProjects = activeProjects.filter(p =>
+          p.editorIds.includes(editorId)
+        );
+        
+        if (editorActiveProjects.length >= MAX_ACTIVE_PROJECTS) {
+          console.warn(`Skipping editor ${editor.name}: at capacity (${editorActiveProjects.length}/${MAX_ACTIVE_PROJECTS})`);
+          continue;
+        }
+        
+        // Check for existing pending/accepted invitation
+        const existingInvitation = await ctx.db
+          .query("projectInvitations")
+          .withIndex("by_project", (q) => q.eq("projectId", projectId))
+          .filter((q) =>
+            q.and(
+              q.eq(q.field("editorId"), editorId),
+              q.or(
+                q.eq(q.field("status"), "PENDING"),
+                q.eq(q.field("status"), "ACCEPTED")
+              )
+            )
+          )
+          .first();
+        
+        if (existingInvitation) {
+          console.warn(`Skipping editor ${editor.name}: already has invitation`);
+          continue;
+        }
+        
+        // Get project for payout preview
+        const project = await ctx.db.get(projectId);
+        if (!project) continue;
+        
+        // Calculate payout preview
+        const payoutPreview = await calculatePayoutPreview(ctx, project, editor);
+        
+        // Create invitation
+        await ctx.db.insert("projectInvitations", {
+          projectId,
+          projectName: args.projectName,
+          editorId,
+          editorName: editor.name,
+          invitedBy: user._id,
+          payoutPreview,
+          status: "PENDING",
+          createdAt: Date.now(),
+        });
+
+        // Notify editor about invitation
+        await notifyUser(ctx, {
+          userId: editorId,
+          type: "editor.invitation.received",
+          title: "New Project Invitation",
+          message: `You've been invited to work on "${args.projectName}"`,
+          data: {
+            projectId,
+            amount: payoutPreview.minPayout,
+            link: `/projects/${slug}`,
+          },
+        });
+      } catch (error) {
+        console.error(`Error inviting editor ${editorId}:`, error);
+        // Continue with other invitations
+      }
+    }
+    
+    // Create audit event
+    await ctx.db.insert("auditEvents", {
+      actorId: user._id,
+      actorRole: user.role,
+      action: "project.created_with_order",
+      entityType: "project",
+      entityId: projectId,
+      metadata: { 
+        name: args.projectName, 
+        serviceType: args.serviceType,
+        editorCount: args.editorIds.length,
+      },
+      createdAt: Date.now(),
+    });
+    
+    // 6. Return project slug for navigation
+    return { projectId, slug, orderId };
   },
 });
 
@@ -295,28 +625,72 @@ export const updateProject = mutation({
     
     const project = await ctx.db.get(args.projectId);
     if (!project) throw new Error("Project not found");
-    
-    // Check permissions
-    if (user.role === "EDITOR") {
-      throw new Error("Editors cannot update projects");
-    }
-    if (user.role === "PM" && project.pmId !== user._id) {
-      throw new Error("Not your project");
-    }
-    
+
     const updates: Record<string, unknown> = {};
-    if (args.name !== undefined) updates.name = args.name;
-    if (args.emoji !== undefined) updates.emoji = args.emoji;
-    if (args.background !== undefined) updates.background = args.background;
-    if (args.summary !== undefined) {
-      updates.summary = args.summary;
-      updates.summaryUpdatedAt = Date.now();
-      updates.summaryUpdatedBy = user._id;
+
+    if (user.role === "EDITOR") {
+      // Editors can only change emoji and background on projects they're assigned to
+      const isAssigned = project.editorIds.includes(user._id);
+      if (!isAssigned) throw new Error("Editors cannot update projects");
+      const editorOnlyFields = args.emoji !== undefined || args.background !== undefined;
+      const otherFields = args.name !== undefined || args.summary !== undefined || args.status !== undefined || args.dueDate !== undefined;
+      if (otherFields || !editorOnlyFields) {
+        throw new Error("Editors can only update icon and background");
+      }
+      if (args.emoji !== undefined) updates.emoji = args.emoji;
+      if (args.background !== undefined) updates.background = args.background;
+    } else {
+      if (user.role === "PM" && project.pmId !== user._id) {
+        throw new Error("Not your project");
+      }
+      if (args.name !== undefined) updates.name = args.name;
+      if (args.emoji !== undefined) updates.emoji = args.emoji;
+      if (args.background !== undefined) updates.background = args.background;
+      if (args.summary !== undefined) {
+        updates.summary = args.summary;
+        updates.summaryUpdatedAt = Date.now();
+        updates.summaryUpdatedBy = user._id;
+      }
+      if (args.status !== undefined) updates.status = args.status;
+      if (args.dueDate !== undefined) updates.dueDate = args.dueDate;
     }
-    if (args.status !== undefined) updates.status = args.status;
-    if (args.dueDate !== undefined) updates.dueDate = args.dueDate;
-    
+
     await ctx.db.patch(args.projectId, updates);
+
+    // If project is being marked as COMPLETED, trigger payout calculation
+    if (args.status === "COMPLETED" && project.status !== "COMPLETED") {
+      await ctx.runMutation(internal.payouts.unlockProjectEarnings, {
+        projectId: args.projectId,
+      });
+    }
+
+    // Notify PM if project status changed to at_risk or delayed
+    if (args.status && args.status !== project.status) {
+      if (args.status === "AT_RISK") {
+        await notifyUser(ctx, {
+          userId: project.pmId,
+          type: "pm.project.at_risk",
+          title: "Project At Risk",
+          message: `Project "${project.name}" is now marked as at risk`,
+          data: {
+            projectId: args.projectId,
+            link: `/projects/${project.slug}`,
+          },
+        });
+      } else if (args.status === "DELAYED") {
+        await notifyUser(ctx, {
+          userId: project.pmId,
+          type: "pm.project.delayed",
+          title: "Project Delayed",
+          message: `Project "${project.name}" is now marked as delayed`,
+          data: {
+            projectId: args.projectId,
+            link: `/projects/${project.slug}`,
+          },
+        });
+      }
+    }
+
     return args.projectId;
   },
 });
@@ -376,6 +750,401 @@ export const assignEditorToProject = mutation({
   },
 });
 
+// Invite editor to project (creates invitation instead of direct assignment)
+export const inviteEditorToProject = mutation({
+  args: {
+    projectId: v.id("projects"),
+    editorId: v.id("users"),
+  },
+  handler: async (ctx, args) => {
+    const identity = await auth.getUserId(ctx);
+    if (!identity) throw new Error("Not authenticated");
+
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_token", (q) => q.eq("tokenIdentifier", identity))
+      .first();
+
+    if (!user) throw new Error("User not found");
+    if (user.role === "EDITOR") {
+      throw new Error("Editors cannot invite other editors. Only the project manager or an admin can invite.");
+    }
+    if (user.role !== "SUPER_ADMIN" && user.role !== "PM") {
+      throw new Error("Unauthorized");
+    }
+    if (user.role === "PM" && user.status !== "ACTIVE") {
+      throw new Error("Not approved yet");
+    }
+    
+    const project = await ctx.db.get(args.projectId);
+    if (!project) throw new Error("Project not found");
+
+    // PMs can only manage their own projects
+    if (user.role === "PM" && project.pmId !== user._id) {
+      throw new Error("Not your project");
+    }
+    
+    const editor = await ctx.db.get(args.editorId);
+    if (!editor || editor.role !== "EDITOR") {
+      throw new Error("Invalid editor");
+    }
+
+    const isTestAssignment =
+      project.isTestProject === true && project.testForEditorId === editor._id;
+    if (!isTestAssignment && editor.status !== "ACTIVE") {
+      throw new Error("Editor is not approved yet");
+    }
+    
+    // Check if already assigned
+    if (project.editorIds.includes(args.editorId)) {
+      throw new Error("Editor is already assigned to this project");
+    }
+
+    // Check if editor has capacity (max active projects)
+    const activeProjects = await ctx.db
+      .query("projects")
+      .filter((q) =>
+        q.and(
+          q.neq(q.field("status"), "COMPLETED"),
+          q.eq(q.field("isTestProject"), false)
+        )
+      )
+      .collect();
+    
+    const editorActiveProjects = activeProjects.filter(p =>
+      p.editorIds.includes(args.editorId)
+    );
+    
+    if (editorActiveProjects.length >= MAX_ACTIVE_PROJECTS) {
+      throw new Error(`Editor already has ${MAX_ACTIVE_PROJECTS} active projects`);
+    }
+
+    // Check for existing pending/accepted invitation
+    const existingInvitation = await ctx.db
+      .query("projectInvitations")
+      .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
+      .filter((q) =>
+        q.and(
+          q.eq(q.field("editorId"), args.editorId),
+          q.or(
+            q.eq(q.field("status"), "PENDING"),
+            q.eq(q.field("status"), "ACCEPTED")
+          )
+        )
+      )
+      .first();
+    
+    if (existingInvitation) {
+      throw new Error("Invitation already exists for this editor");
+    }
+
+    // Calculate payout preview
+    const payoutPreview = await calculatePayoutPreview(ctx, project, editor);
+
+    // Create invitation
+    const invitationId = await ctx.db.insert("projectInvitations", {
+      projectId: args.projectId,
+      projectName: project.name,
+      editorId: args.editorId,
+      editorName: editor.name,
+      invitedBy: user._id,
+      payoutPreview,
+      status: "PENDING",
+      createdAt: Date.now(),
+    });
+
+    return invitationId;
+  },
+});
+
+// Get pending invitations for current editor
+export const getMyPendingInvitations = query({
+  args: {},
+  handler: async (ctx) => {
+    const identity = await auth.getUserId(ctx);
+    if (!identity) return [];
+    
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_token", (q) => q.eq("tokenIdentifier", identity))
+      .first();
+    
+    if (!user || user.role !== "EDITOR") return [];
+
+    const invitations = await ctx.db
+      .query("projectInvitations")
+      .withIndex("by_editor", (q) => q.eq("editorId", user._id))
+      .filter((q) => q.eq(q.field("status"), "PENDING"))
+      .collect();
+
+    // Enrich with project and PM info
+    const enriched = [];
+    for (const inv of invitations) {
+      const project = await ctx.db.get(inv.projectId);
+      if (!project) continue;
+      
+      const pm = await ctx.db.get(project.pmId);
+      enriched.push({
+        ...inv,
+        project: {
+          name: project.name,
+          slug: project.slug,
+          summary: project.summary,
+          deadlineAt: project.deadlineAt || project.dueDate,
+        },
+        pmName: pm?.name || project.pmName,
+      });
+    }
+
+    return enriched;
+  },
+});
+
+// Get all invitations for a project (for PM/Admin to see invitation status)
+export const getProjectInvitations = query({
+  args: { projectId: v.id("projects") },
+  handler: async (ctx, args) => {
+    const identity = await auth.getUserId(ctx);
+    if (!identity) return null;
+    
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_token", (q) => q.eq("tokenIdentifier", identity))
+      .first();
+    
+    if (!user) return null;
+    
+    // Get project to check permissions
+    const project = await ctx.db.get(args.projectId);
+    if (!project) return null;
+    
+    // Editors and PMs viewing another PM's project get read-only team list (no invitation details)
+    const canManageInvitations = user.role === "SUPER_ADMIN" || (user.role === "PM" && project.pmId === user._id);
+    if (!canManageInvitations) {
+      // Build read-only "accepted" list from project's current editors so Team section always renders
+      const editorIds = project.editorIds ?? [];
+      const editorNames = project.editorNames ?? [];
+      const accepted: Array<{
+        _id: Id<"projectInvitations">;
+        editorId: Id<"users">;
+        editorName: string;
+        editorTier?: string;
+        respondedAt: number | null;
+        payoutPreview: { minPayout: number; maxPayout: number };
+      }> = [];
+      for (let i = 0; i < editorIds.length; i++) {
+        const editorId = editorIds[i];
+        const editor = await ctx.db.get(editorId);
+        accepted.push({
+          _id: editorId as unknown as Id<"projectInvitations">,
+          editorId,
+          editorName: editorNames[i] ?? editor?.name ?? "Unknown",
+          editorTier: editor?.tier,
+          respondedAt: null,
+          payoutPreview: { minPayout: 0, maxPayout: 0 },
+        });
+      }
+      return {
+        all: [],
+        pending: [],
+        accepted,
+        rejected: [],
+        expired: [],
+        counts: {
+          total: accepted.length,
+          pending: 0,
+          accepted: accepted.length,
+          rejected: 0,
+          expired: 0,
+        },
+      };
+    }
+
+    // Get all invitations for this project
+    const invitations = await ctx.db
+      .query("projectInvitations")
+      .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
+      .collect();
+
+    // Enrich with editor details
+    const enriched = [];
+    for (const inv of invitations) {
+      const editor = await ctx.db.get(inv.editorId);
+      enriched.push({
+        ...inv,
+        editorTier: editor?.tier,
+        editorStatus: editor?.status,
+      });
+    }
+
+    // Group by status
+    const pending = enriched.filter(inv => inv.status === "PENDING");
+    const accepted = enriched.filter(inv => inv.status === "ACCEPTED");
+    const rejected = enriched.filter(inv => inv.status === "REJECTED");
+    const expired = enriched.filter(inv => inv.status === "EXPIRED");
+
+    return {
+      all: enriched,
+      pending,
+      accepted,
+      rejected,
+      expired,
+      counts: {
+        total: enriched.length,
+        pending: pending.length,
+        accepted: accepted.length,
+        rejected: rejected.length,
+        expired: expired.length,
+      },
+    };
+  },
+});
+
+// Accept project invitation
+export const acceptProjectInvitation = mutation({
+  args: {
+    invitationId: v.id("projectInvitations"),
+  },
+  handler: async (ctx, args) => {
+    const identity = await auth.getUserId(ctx);
+    if (!identity) throw new Error("Not authenticated");
+    
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_token", (q) => q.eq("tokenIdentifier", identity))
+      .first();
+    
+    if (!user || user.role !== "EDITOR") {
+      throw new Error("Unauthorized");
+    }
+
+    const invitation = await ctx.db.get(args.invitationId);
+    if (!invitation) throw new Error("Invitation not found");
+    
+    if (invitation.editorId !== user._id) {
+      throw new Error("This invitation is not for you");
+    }
+
+    if (invitation.status !== "PENDING") {
+      throw new Error("Invitation is no longer pending");
+    }
+
+    // Check editor still has capacity
+    const activeProjects = await ctx.db
+      .query("projects")
+      .filter((q) =>
+        q.and(
+          q.neq(q.field("status"), "COMPLETED"),
+          q.eq(q.field("isTestProject"), false)
+        )
+      )
+      .collect();
+    
+    const editorActiveProjects = activeProjects.filter(p =>
+      p.editorIds.includes(user._id)
+    );
+    
+    if (editorActiveProjects.length >= MAX_ACTIVE_PROJECTS) {
+      throw new Error(`You already have ${MAX_ACTIVE_PROJECTS} active projects`);
+    }
+
+    const project = await ctx.db.get(invitation.projectId);
+    if (!project) throw new Error("Project not found");
+
+    // Add editor to project
+    await ctx.db.patch(invitation.projectId, {
+      editorIds: [...project.editorIds, user._id],
+      editorNames: [...project.editorNames, user.name],
+    });
+
+    // Update invitation status
+    await ctx.db.patch(args.invitationId, {
+      status: "ACCEPTED",
+      respondedAt: Date.now(),
+    });
+
+    // Create system chat message
+    await ctx.db.insert("chatMessages", {
+      projectId: invitation.projectId,
+      senderId: user._id,
+      senderName: user.name,
+      senderRole: user.role ?? "EDITOR",
+      type: "SYSTEM",
+      content: `✅ ${user.name} accepted the project invitation`,
+      createdAt: Date.now(),
+    });
+
+    // Notify PM about acceptance
+    await notifyUser(ctx, {
+      userId: project.pmId,
+      type: "pm.invitation.response",
+      title: "Invitation Accepted",
+      message: `${user.name} accepted your invitation for "${project.name}"`,
+      data: {
+        projectId: invitation.projectId,
+        link: `/projects/${project.slug}`,
+      },
+    });
+
+    return { projectSlug: project.slug };
+  },
+});
+
+// Reject project invitation
+export const rejectProjectInvitation = mutation({
+  args: {
+    invitationId: v.id("projectInvitations"),
+    reason: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const identity = await auth.getUserId(ctx);
+    if (!identity) throw new Error("Not authenticated");
+    
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_token", (q) => q.eq("tokenIdentifier", identity))
+      .first();
+    
+    if (!user || user.role !== "EDITOR") {
+      throw new Error("Unauthorized");
+    }
+
+    const invitation = await ctx.db.get(args.invitationId);
+    if (!invitation) throw new Error("Invitation not found");
+    
+    if (invitation.editorId !== user._id) {
+      throw new Error("This invitation is not for you");
+    }
+
+    if (invitation.status !== "PENDING") {
+      throw new Error("Invitation is no longer pending");
+    }
+
+    const project = await ctx.db.get(invitation.projectId);
+    if (!project) throw new Error("Project not found");
+
+    // Update invitation status
+    await ctx.db.patch(args.invitationId, {
+      status: "REJECTED",
+      respondedAt: Date.now(),
+    });
+
+    // Notify PM about rejection
+    await notifyUser(ctx, {
+      userId: project.pmId,
+      type: "pm.invitation.response",
+      title: "Invitation Declined",
+      message: `${user.name} declined your invitation for "${project.name}"`,
+      data: {
+        projectId: invitation.projectId,
+        link: `/projects/${project.slug}`,
+      },
+    });
+
+    return args.invitationId;
+  },
+});
+
 // Get projects at risk (for dashboard)
 export const getProjectsAtRisk = query({
   args: {},
@@ -405,7 +1174,10 @@ export const getProjectsAtRisk = query({
     if (user.role === "PM") {
       projects = projects.filter(p => p.pmId === user._id);
     }
-    
+
+    // Exclude test projects from dashboard counts
+    projects = projects.filter(p => p.isTestProject !== true);
+
     return projects;
   },
 });
@@ -541,7 +1313,6 @@ export const createProjectAndAssignEditor = mutation({
         title: defaultMilestones[i].title,
         description: defaultMilestones[i].description,
         order: i + 1,
-        payoutAmount: defaultMilestones[i].payout,
         status: i === 0 ? "IN_PROGRESS" : "LOCKED",
         createdAt: Date.now(),
       });
@@ -579,7 +1350,10 @@ export const getProjectStats = query({
     } else if (user.role === "EDITOR") {
       projects = projects.filter(p => p.editorIds.includes(user._id));
     }
-    
+
+    // Exclude test projects from dashboard stats
+    projects = projects.filter(p => p.isTestProject !== true);
+
     const active = projects.filter(p => p.status === "ACTIVE").length;
     const atRisk = projects.filter(p => p.status === "AT_RISK").length;
     const delayed = projects.filter(p => p.status === "DELAYED").length;
@@ -631,7 +1405,6 @@ export const createProjectFromOrderAdmin = mutation({
     milestones: v.array(v.object({
       title: v.string(),
       description: v.optional(v.string()),
-      payoutAmount: v.number(),
       order: v.number(),
     })),
     projectName: v.optional(v.string()),
@@ -717,7 +1490,6 @@ export const createProjectFromOrderAdmin = mutation({
         title: milestone.title,
         description: milestone.description,
         order: milestone.order,
-        payoutAmount: milestone.payoutAmount,
         status: milestone.order === 1 ? "IN_PROGRESS" : "LOCKED",
         createdAt: Date.now(),
       });
@@ -862,7 +1634,6 @@ export const createProjectFromOrder = internalMutation({
         title: defaultMilestones[i].title,
         description: defaultMilestones[i].description,
         order: i + 1,
-        payoutAmount: defaultMilestones[i].payout,
         status: i === 0 ? "IN_PROGRESS" : "LOCKED",
         createdAt: Date.now(),
       });

@@ -22,14 +22,30 @@ export const getProjectMessages = query({
     // Check project access
     const project = await ctx.db.get(args.projectId);
     if (!project) return [];
-    
-    if (user.role === "EDITOR" && !project.editorIds.includes(user._id)) {
-      return [];
+
+    if (user.role === "EDITOR") {
+      const isAssigned = project.editorIds.includes(user._id);
+      if (!isAssigned) {
+        const invitation = await ctx.db
+          .query("projectInvitations")
+          .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
+          .filter((q) =>
+            q.and(
+              q.eq(q.field("editorId"), user._id),
+              q.or(
+                q.eq(q.field("status"), "PENDING"),
+                q.eq(q.field("status"), "ACCEPTED")
+              )
+            )
+          )
+          .first();
+        if (!invitation) return [];
+      }
     }
     if (user.role === "PM" && project.pmId !== user._id) {
       return [];
     }
-    
+
     const messagesQuery = ctx.db
       .query("chatMessages")
       .withIndex("by_project_time", (q) => q.eq("projectId", args.projectId))

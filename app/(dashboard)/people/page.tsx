@@ -14,7 +14,6 @@ import {
   Loader2, 
   Mail, 
   Phone,
-  Briefcase
 } from "lucide-react";
 import Link from "next/link";
 

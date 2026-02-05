@@ -1,8 +1,6 @@
 import { v } from "convex/values";
 import { query, mutation } from "./_generated/server";
 import { auth } from "./auth";
-import { Id } from "./_generated/dataModel";
-
 // List all milestone templates
 export const listTemplates = query({
   args: {},

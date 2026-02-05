@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { useAuth, usePermissions } from "@/lib/auth";
@@ -8,42 +9,50 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ProjectCard } from "@/components/projects/project-card";
 import { ProjectTable } from "@/components/projects/project-table";
-import { 
-  Plus, 
-  Search, 
-  LayoutGrid, 
-  List, 
-  Filter,
-  Loader2 
-} from "lucide-react";
+import { CreateProjectModal } from "@/components/projects/create-project-modal";
+import { Plus, Search, LayoutGrid, List, Filter, Loader2 } from "lucide-react";
 import Link from "next/link";
 
 type ViewMode = "grid" | "table";
 type StatusFilter = "ALL" | "ACTIVE" | "AT_RISK" | "DELAYED" | "COMPLETED";
 
 export default function ProjectsPage() {
+  const router = useRouter();
   const { user } = useAuth();
   const { canManageProjects } = usePermissions();
+  const hiring = useQuery(api.editorHiring.getMyEditorHiring, {});
   const [viewMode, setViewMode] = useState<ViewMode>("grid");
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("ALL");
-  
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const projects = useQuery(api.projects.listProjects, {
+    status:
+      statusFilter === "ALL"
+        ? undefined
+        : (statusFilter as "ACTIVE" | "AT_RISK" | "DELAYED" | "COMPLETED"),
+  });
+
   if (user?.status === "INVITED") {
+    const approvedPendingNda = user.role === "EDITOR" && hiring?.hiring?.status === "APPROVED" && !hiring?.hiring?.ndaAcceptedAt;
     return (
       <div className="space-y-6 animate-fade-in">
         <div>
           <h1 className="text-2xl font-bold text-zinc-100">Projects</h1>
           <p className="text-zinc-400 mt-1">
-            Your account is pending admin approval.
+            {approvedPendingNda ? "You've been approved. Sign the NDA to access projects." : "Your account is pending admin approval."}
           </p>
         </div>
         <div className="p-6 rounded-xl border border-zinc-800 bg-zinc-900/50">
           <p className="text-sm text-zinc-300">
-            You’ll be able to access projects once you’re approved.
+            {approvedPendingNda
+              ? "You've been approved. Sign the NDA in onboarding to access projects."
+              : "You'll be able to access projects once you're approved."}
           </p>
-          <p className="text-sm text-zinc-500 mt-1">
-            Please complete onboarding and sign the NDA first.
-          </p>
+          {!approvedPendingNda && (
+            <p className="text-sm text-zinc-500 mt-1">
+              Please complete onboarding and sign the NDA first.
+            </p>
+          )}
           <div className="mt-4">
             <Link href="/onboarding">
               <Button className="bg-zinc-800 hover:bg-zinc-700 text-zinc-100">
@@ -56,10 +65,6 @@ export default function ProjectsPage() {
     );
   }
 
-  const projects = useQuery(api.projects.listProjects, {
-    status: statusFilter === "ALL" ? undefined : statusFilter,
-  });
-  
   const filteredProjects = projects?.filter(project =>
     project.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
     project.pmName.toLowerCase().includes(searchQuery.toLowerCase())
@@ -78,12 +83,13 @@ export default function ProjectsPage() {
           </p>
         </div>
         {canManageProjects && (
-          <Link href="/projects/new">
-            <Button className="bg-linear-to-r from-rose-500 to-orange-500 hover:from-rose-600 hover:to-orange-600 text-white shadow-lg shadow-rose-500/20">
-              <Plus className="w-4 h-4 mr-2" />
-              New Project
-            </Button>
-          </Link>
+          <Button
+            onClick={() => setShowCreateModal(true)}
+            className="bg-linear-to-r from-rose-500 to-orange-500 hover:from-rose-600 hover:to-orange-600 text-white shadow-lg shadow-rose-500/20"
+          >
+            <Plus className="w-4 h-4 mr-2" />
+            Create Project
+          </Button>
         )}
       </div>
       
@@ -153,12 +159,10 @@ export default function ProjectsPage() {
             {searchQuery ? "Try a different search term" : "Create your first project to get started"}
           </p>
           {canManageProjects && !searchQuery && (
-            <Link href="/projects/new">
-              <Button className="mt-4 bg-zinc-800 hover:bg-zinc-700 text-zinc-100">
-                <Plus className="w-4 h-4 mr-2" />
-                Create Project
-              </Button>
-            </Link>
+            <Button onClick={() => setShowCreateModal(true)} className="mt-4 bg-zinc-800 hover:bg-zinc-700 text-zinc-100">
+              <Plus className="w-4 h-4 mr-2" />
+              Create Project
+            </Button>
           )}
         </div>
       ) : viewMode === "grid" ? (
@@ -170,6 +174,12 @@ export default function ProjectsPage() {
       ) : (
         <ProjectTable projects={filteredProjects || []} />
       )}
+
+      <CreateProjectModal
+        open={showCreateModal}
+        onClose={() => setShowCreateModal(false)}
+        onSuccess={(slug) => router.push(`/projects/${slug}`)}
+      />
     </div>
   );
 }

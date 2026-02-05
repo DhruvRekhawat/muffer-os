@@ -1,0 +1,122 @@
+GET   Fetch Templates
+https://chat.leminai.com/api/wpbox/getTemplates
+Get all the templates.
+{
+"token": "{{token}}"
+"user_id": "{{user_id}}"
+}
+Params
+token 	ZdpL6tcZk1ccgYTPqxOAXEcWOVaGjllG4LQ2eiJ764b21df9
+user_id 	628
+POST   Send Template Message
+https://chat.leminai.com/api/wpbox/sendtemplatemessage
+Send template messages to the numbers.
+{
+"token": "{{token}}",
+"phone": "{{phone_number}}",
+"template_name": "{{template_name}}",
+"template_language": "{{language}}",
+"components": [
+{
+"type": "BODY",
+"parameters": [
+{
+"type": "text",
+"text": "{{message}}"
+}
+]
+}
+]
+}
+Params
+token 	ZdpL6tcZk1ccgYTPqxOAXEcWOVaGjllG4LQ2eiJ764b21df9
+phone 	9198XXXXXX85
+template_name 	demo_template
+template_language 	en_US
+components 	Optional (Include only if your template have variables.)
+GET   Get Goups
+https://chat.leminai.com/api/wpbox/getGroups
+Get groups with contacts.
+{
+"token": "{{token}}",
+"showContacts": "{{string}}"
+}
+Params
+token 	ZdpL6tcZk1ccgYTPqxOAXEcWOVaGjllG4LQ2eiJ764b21df9
+showContacts 	yes/no ('yes' to get contacts also with the groups)
+GET   Get Contacts
+https://chat.leminai.com/api/wpbox/getContacts
+Get all contacts.
+{
+"token": "{{token}}"
+}
+Params
+token 	ZdpL6tcZk1ccgYTPqxOAXEcWOVaGjllG4LQ2eiJ764b21df9
+GET   Get Single Contacts
+https://chat.leminai.com/api/wpbox/getSingleContact
+Get particular contacts.
+{
+"token": "{{token}}",
+"phone": "{{phone_number}}"
+}
+Params
+token 	ZdpL6tcZk1ccgYTPqxOAXEcWOVaGjllG4LQ2eiJ764b21df9
+phone 	9198XXXXXX85
+POST   Create Contacts
+https://chat.leminai.com/api/wpbox/makeContact
+Get particular contacts.
+{
+"token": "{{token}}",
+"phone": "{{phone_number}}",
+"name": "{{name}}",
+"groups": "{{group_name}}",
+"custom": {
+{{custom_field_1}}: "{{custom_field_1_value}}",
+{{custom_field_2}}: "{{custom_field_2_value}}"
+}
+}
+Params
+token 	ZdpL6tcZk1ccgYTPqxOAXEcWOVaGjllG4LQ2eiJ764b21df9
+phone 	9198XXXXXX85
+name 	XYZ
+groups 	ABC
+custom 	address: DEF,
+age: 85
+GET   Get Campaign List
+https://chat.leminai.com/api/wpbox/getCampaigns
+Get regular, bot and api campaigns.
+{
+"token": "{{token}}",
+"type": "{{type}}"
+}
+Params
+token 	ZdpL6tcZk1ccgYTPqxOAXEcWOVaGjllG4LQ2eiJ764b21df9
+type 	regular/api/bot
+POST   Send Normal Message
+https://chat.leminai.com/api/wpbox/sendmessage
+Send messages to the numbers with buttons.
+{
+"token": "{{token}}",
+"phone": "{{phone_number}}",
+"message": "{{message_text}}",
+"header": "{{header_text}}",
+"footer": "{{footer_text}}",
+"buttons": [
+{
+"id": "{{number}}",
+"title": "{{text}}"
+},
+{
+"id": "{{number}}",
+"title": "{{text}}"
+}
+]
+}
+Params
+token 	ZdpL6tcZk1ccgYTPqxOAXEcWOVaGjllG4LQ2eiJ764b21df9
+phone 	9198XXXXXX85
+message 	Hey! how are you?
+header 	Optional
+footer 	Optional
+buttons 	id: 2,
+title: Interested

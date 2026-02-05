@@ -10,20 +10,25 @@
 
 import type * as auth from "../auth.js";
 import type * as chat from "../chat.js";
+import type * as config from "../config.js";
 import type * as editorHiring from "../editorHiring.js";
 import type * as finance from "../finance.js";
 import type * as hiring from "../hiring.js";
 import type * as http from "../http.js";
+import type * as migrations from "../migrations.js";
 import type * as milestoneTemplates from "../milestoneTemplates.js";
 import type * as milestones from "../milestones.js";
 import type * as missions from "../missions.js";
+import type * as notifications from "../notifications.js";
 import type * as orders from "../orders.js";
+import type * as payoutEngine from "../payoutEngine.js";
 import type * as payouts from "../payouts.js";
 import type * as pricing from "../pricing.js";
 import type * as projects from "../projects.js";
 import type * as seed from "../seed.js";
 import type * as submissions from "../submissions.js";
 import type * as users from "../users.js";
+import type * as whatsapp from "../whatsapp.js";
 
 import type {
   ApiFromModules,
@@ -34,20 +39,25 @@ import type {
 declare const fullApi: ApiFromModules<{
   auth: typeof auth;
   chat: typeof chat;
+  config: typeof config;
   editorHiring: typeof editorHiring;
   finance: typeof finance;
   hiring: typeof hiring;
   http: typeof http;
+  migrations: typeof migrations;
   milestoneTemplates: typeof milestoneTemplates;
   milestones: typeof milestones;
   missions: typeof missions;
+  notifications: typeof notifications;
   orders: typeof orders;
+  payoutEngine: typeof payoutEngine;
   payouts: typeof payouts;
   pricing: typeof pricing;
   projects: typeof projects;
   seed: typeof seed;
   submissions: typeof submissions;
   users: typeof users;
+  whatsapp: typeof whatsapp;
 }>;
 
 /**

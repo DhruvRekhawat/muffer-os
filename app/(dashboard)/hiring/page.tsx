@@ -17,6 +17,7 @@ import {
   Briefcase
 } from "lucide-react";
 import { Id } from "@/convex/_generated/dataModel";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 type StatusFilter = "ALL" | "SUBMITTED" | "APPROVED" | "REJECTED";
 type ViewMode = "APPLICATIONS" | "READY_FOR_REVIEW";
@@ -26,16 +27,19 @@ export default function HiringPage() {
   const [viewMode, setViewMode] = useState<ViewMode>("READY_FOR_REVIEW");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("SUBMITTED");
   const [processingId, setProcessingId] = useState<string | null>(null);
+  const [selectedTiers, setSelectedTiers] = useState<Record<string, "JUNIOR" | "STANDARD" | "SENIOR" | "ELITE" | "">>({});
   
   const applications = useQuery(api.hiring.listApplications, {
     status: statusFilter === "ALL" ? undefined : statusFilter,
   });
 
   const readyForReview = useQuery(api.editorHiring.listReadyForReview, {});
+  const tierRates = useQuery(api.config.listTierRates, {});
   
   const approveApplication = useMutation(api.hiring.approveApplication);
   const rejectApplication = useMutation(api.hiring.rejectApplication);
   const approveEditor = useMutation(api.editorHiring.approveEditor);
+  const rejectEditor = useMutation(api.editorHiring.rejectEditor);
   
   const handleApprove = async (applicationId: Id<"editorApplications">) => {
     setProcessingId(applicationId);
@@ -56,10 +60,34 @@ export default function HiringPage() {
     }
   };
 
-  const handleApproveEditor = async (userId: Id<"users">) => {
+  const handleApproveEditor = async (userId: Id<"users">, userRole: string) => {
+    if (userRole === "EDITOR" && !selectedTiers[userId]) {
+      alert("Please select a tier for this editor");
+      return;
+    }
+    
     setProcessingId(userId);
     try {
-      await approveEditor({ userId });
+      await approveEditor({ 
+        userId,
+        tier: userRole === "EDITOR" ? selectedTiers[userId] as "JUNIOR" | "STANDARD" | "SENIOR" | "ELITE" : undefined,
+      });
+      // Clear selected tier after approval
+      setSelectedTiers(prev => {
+        const next = { ...prev };
+        delete next[userId];
+        return next;
+      });
+    } finally {
+      setProcessingId(null);
+    }
+  };
+
+  const handleRejectEditor = async (userId: Id<"users">) => {
+    const reason = prompt("Rejection reason (optional):");
+    setProcessingId(userId);
+    try {
+      await rejectEditor({ userId, reason: reason || undefined });
     } finally {
       setProcessingId(null);
     }
@@ -377,13 +405,60 @@ export default function HiringPage() {
                           &quot;{item.testSubmission.notes}&quot;
                         </p>
                       )}
+
+                      {item.user.role === "EDITOR" && (
+                        <div className="mt-4">
+                          <label className="text-xs text-zinc-500 mb-2 block">Editor Tier (Required)</label>
+                          <Select
+                            value={selectedTiers[item.user._id] || ""}
+                            onValueChange={(value) => {
+                              setSelectedTiers(prev => ({
+                                ...prev,
+                                [item.user._id]: value as "JUNIOR" | "STANDARD" | "SENIOR" | "ELITE",
+                              }));
+                            }}
+                          >
+                            <SelectTrigger className="w-full bg-zinc-900 border-zinc-700">
+                              <SelectValue placeholder="Select tier" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {tierRates?.map((tr) => (
+                                <SelectItem key={tr.tier} value={tr.tier}>
+                                  {tr.tier} - ₹{tr.ratePerMin}/min
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          {selectedTiers[item.user._id] && tierRates && (
+                            <p className="text-xs text-zinc-500 mt-1">
+                              Rate: ₹{tierRates.find(tr => tr.tier === selectedTiers[item.user._id])?.ratePerMin}/minute
+                            </p>
+                          )}
+                        </div>
+                      )}
                     </div>
 
                     <div className="flex gap-2">
                       <Button
                         size="sm"
-                        onClick={() => handleApproveEditor(item.user._id)}
+                        variant="outline"
+                        onClick={() => handleRejectEditor(item.user._id)}
                         disabled={processingId === item.user._id}
+                        className="border-red-500/30 text-red-400 hover:bg-red-500/10"
+                      >
+                        {processingId === item.user._id ? (
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                        ) : (
+                          <>
+                            <XCircle className="w-4 h-4 mr-1" />
+                            Reject
+                          </>
+                        )}
+                      </Button>
+                      <Button
+                        size="sm"
+                        onClick={() => handleApproveEditor(item.user._id, item.user.role || "")}
+                        disabled={processingId === item.user._id || (item.user.role === "EDITOR" && !selectedTiers[item.user._id])}
                         className="bg-emerald-600 hover:bg-emerald-700 text-white"
                       >
                         {processingId === item.user._id ? (

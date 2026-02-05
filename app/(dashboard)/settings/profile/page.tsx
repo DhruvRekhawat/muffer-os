@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, Save, User, Mail, Phone, Briefcase } from "lucide-react";
+import { Loader2, Save, User, Mail, Phone } from "lucide-react";
 
 export default function ProfileSettingsPage() {
   const { user } = useAuth();

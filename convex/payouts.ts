@@ -3,6 +3,8 @@ import { query, mutation, internalMutation } from "./_generated/server";
 import { auth } from "./auth";
 import { internal } from "./_generated/api";
 import { Id } from "./_generated/dataModel";
+import { calculateFinalPayout } from "./payoutEngine";
+import { notifyUser } from "./notifications";
 
 // Minimum payout threshold (in rupees)
 const MIN_PAYOUT = 500;
@@ -30,22 +32,87 @@ export const unlockProjectEarnings = internalMutation({
       .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
       .collect();
 
-    // Aggregate payout amounts per editor from APPROVED milestones.
-    const byEditor = new Map<Id<"users">, number>();
+    // Group milestones by editor
+    const milestonesByEditor = new Map<Id<"users">, typeof milestones>();
     for (const m of milestones) {
       if (m.status !== "APPROVED") continue;
       if (!m.assignedEditorId) continue;
-      byEditor.set(m.assignedEditorId, (byEditor.get(m.assignedEditorId) || 0) + m.payoutAmount);
+      if (!milestonesByEditor.has(m.assignedEditorId)) {
+        milestonesByEditor.set(m.assignedEditorId, []);
+      }
+      milestonesByEditor.get(m.assignedEditorId)!.push(m);
     }
 
-    // Credit wallet balances.
-    for (const [editorId, amount] of byEditor.entries()) {
-      if (amount <= 0) continue;
-      await ctx.runMutation(internal.users.updateEditorBalance, {
-        editorId,
-        amount,
-        isAddition: true,
-      });
+    // Calculate and store payout records for each editor
+    for (const [editorId, editorMilestones] of milestonesByEditor.entries()) {
+      const editor = await ctx.db.get(editorId);
+      if (!editor || !editor.tierRatePerMin) continue;
+
+      // Calculate aggregate QC average
+      const scoredMilestones = editorMilestones.filter((m) => m.qcAverage !== undefined);
+      const qcAverage =
+        scoredMilestones.length > 0
+          ? scoredMilestones.reduce((sum, m) => sum + (m.qcAverage ?? 0), 0) / scoredMilestones.length
+          : 4.5; // Default to neutral if no scores
+
+      // Calculate total late minutes
+      const lateMinutes = editorMilestones.reduce((sum, m) => sum + (m.lateMinutes ?? 0), 0);
+
+      // Calculate final payout using payout engine
+      const breakdown = await calculateFinalPayout(ctx, project, editor, qcAverage, lateMinutes, []);
+
+      // Check if payout record already exists
+      const existingRecord = await ctx.db
+        .query("editorPayoutRecords")
+        .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
+        .filter((q) => q.eq(q.field("editorId"), editorId))
+        .first();
+
+      const now = Date.now();
+      if (existingRecord) {
+        // Update existing record
+        await ctx.db.patch(existingRecord._id, {
+          ...breakdown,
+          qcAverage,
+          lateMinutes,
+          status: "UNLOCKED",
+          unlockedAt: now,
+        });
+      } else {
+        // Create new record
+        await ctx.db.insert("editorPayoutRecords", {
+          projectId: args.projectId,
+          editorId,
+          ...breakdown,
+          qcAverage,
+          lateMinutes,
+          status: "UNLOCKED",
+          unlockedAt: now,
+          createdAt: now,
+        });
+      }
+
+      // Credit wallet balance
+      if (breakdown.finalPayout > 0) {
+        await ctx.runMutation(internal.users.updateEditorBalance, {
+          editorId,
+          amount: breakdown.finalPayout,
+          isAddition: true,
+        });
+
+        // Notify editor about unlocked earnings
+        await notifyUser(ctx, {
+          userId: editorId,
+          type: "editor.payout.unlocked",
+          title: "Earnings Unlocked!",
+          message: `₹${Math.round(breakdown.finalPayout)} unlocked from "${project.name}"`,
+          data: {
+            projectId: args.projectId,
+            amount: breakdown.finalPayout,
+            link: `/projects/${project.slug}`,
+          },
+        });
+      }
     }
 
     await ctx.db.patch(args.projectId, {
@@ -53,6 +120,41 @@ export const unlockProjectEarnings = internalMutation({
     });
 
     return { ok: true as const, alreadyUnlocked: false as const };
+  },
+});
+
+// Get payout record for a project (for earnings breakdown page)
+export const getProjectPayoutRecord = query({
+  args: {
+    projectId: v.id("projects"),
+    editorId: v.optional(v.id("users")),
+  },
+  handler: async (ctx, args) => {
+    const identity = await auth.getUserId(ctx);
+    if (!identity) return null;
+    
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_token", (q) => q.eq("tokenIdentifier", identity))
+      .first();
+    
+    if (!user) return null;
+
+    const editorId = args.editorId || (user.role === "EDITOR" ? user._id : null);
+    if (!editorId) return null;
+
+    // Check access: editor can only see their own, PM/SA can see any
+    if (user.role === "EDITOR" && editorId !== user._id) {
+      return null;
+    }
+
+    const payoutRecord = await ctx.db
+      .query("editorPayoutRecords")
+      .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
+      .filter((q) => q.eq(q.field("editorId"), editorId))
+      .first();
+
+    return payoutRecord;
   },
 });
 
@@ -288,6 +390,18 @@ export const processPayout = mutation({
         transactionRef: args.transactionRef,
       },
       createdAt: Date.now(),
+    });
+
+    // Notify editor about processed payout
+    await notifyUser(ctx, {
+      userId: request.editorId,
+      type: "editor.payout.processed",
+      title: "Payout Processed",
+      message: `Your payout of ₹${request.amount} has been processed`,
+      data: {
+        amount: request.amount,
+        link: "/wallet",
+      },
     });
     
     return args.requestId;

@@ -4,7 +4,7 @@ import { useAuthActions } from "@convex-dev/auth/react";
 import { useConvexAuth, useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect } from "react";
 
 // Auth state hook
 export function useAuth() {
@@ -143,6 +143,7 @@ export function useSignOut() {
 
 // Magic link - currently not implemented (placeholder for future)
 export function useMagicLink() {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- placeholder for future API
   const requestMagicLink = useCallback(async (_email: string) => {
     return { 
       success: false, 
@@ -155,14 +156,20 @@ export function useMagicLink() {
 
 // Verify magic link code - currently not implemented
 export function useVerifyCode() {
-  const router = useRouter();
-  
-  const verifyCode = useCallback(async (_email: string, _code: string) => {
-    return { 
-      success: false, 
-      error: "Magic link verification not yet configured" 
-    };
-  }, []);
+  const verifyCode = useCallback(
+    async (
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars -- placeholder for future API
+      _email: string,
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars -- placeholder for future API
+      _code: string
+    ) => {
+      return {
+        success: false,
+        error: "Magic link verification not yet configured",
+      };
+    },
+    []
+  );
   
   return verifyCode;
 }
@@ -185,7 +192,8 @@ export function usePermissions() {
 }
 
 // Role-based redirect helper
-export function getRoleDashboardPath(role: string | undefined): string {
+// eslint-disable-next-line @typescript-eslint/no-unused-vars -- API signature for future role-based paths
+export function getRoleDashboardPath(_role: string | undefined): string {
   // All roles go to the same dashboard, which is role-aware
   return "/dashboard";
 }

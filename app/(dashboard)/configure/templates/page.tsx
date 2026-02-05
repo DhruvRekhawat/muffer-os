@@ -3,7 +3,6 @@
 import { useState } from "react";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
-import { useRouter } from "next/navigation";
 import { usePermissions } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -28,7 +27,6 @@ type Milestone = {
 };
 
 export default function TemplatesPage() {
-  const router = useRouter();
   const { isSuperAdmin } = usePermissions();
   
   const [isCreating, setIsCreating] = useState(false);

@@ -91,7 +91,7 @@ export const { auth, signIn, signOut, store } = convexAuth({
             tokenIdentifier = identity;
             console.log("createOrUpdateUser - Got identity from auth.getUserId:", identity);
           }
-        } catch (e) {
+        } catch {
           // Identity might not be available in callback - this is expected
           // The syncTokenIdentifier mutation will fix the tokenIdentifier after login
           console.log("createOrUpdateUser - Could not get identity from auth.getUserId (expected in callback), will sync later");

@@ -7,7 +7,6 @@ import { usePermissions } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Input } from "@/components/ui/input";
 import { 
   ArrowLeft,
   Loader2, 

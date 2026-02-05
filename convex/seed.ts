@@ -109,7 +109,6 @@ export const seedTestUsers = mutation({
         title: m.title,
         description: m.description,
         order: m.order,
-        payoutAmount: m.payout,
         assignedEditorId: editorId,
         assignedEditorName: "Ethan Editor",
         status: m.status,

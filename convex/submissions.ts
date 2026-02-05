@@ -2,6 +2,7 @@ import { v } from "convex/values";
 import { query, mutation } from "./_generated/server";
 import { auth } from "./auth";
 import { internal } from "./_generated/api";
+import { notifyUser } from "./notifications";
 
 // Get submissions for a milestone
 export const getMilestoneSubmissions = query({
@@ -126,10 +127,20 @@ export const submitDeliverable = mutation({
       createdAt: Date.now(),
     });
     
-    // Update milestone status
+    // Calculate late minutes
+    const deadlineAt = milestone.dueDate || project?.deadlineAt || project?.dueDate;
+    let lateMinutes: number | undefined = undefined;
+    if (deadlineAt) {
+      const now = Date.now();
+      const minutesLate = Math.max(0, (now - deadlineAt) / 60000);
+      lateMinutes = Math.round(minutesLate);
+    }
+
+    // Update milestone status and late minutes
     await ctx.db.patch(args.milestoneId, {
       status: "SUBMITTED",
       submittedAt: Date.now(),
+      lateMinutes,
     });
     
     // Hiring flow hook: if this is the editor's test project, mark READY_FOR_REVIEW
@@ -200,6 +211,9 @@ export const approveSubmission = mutation({
   args: {
     submissionId: v.id("submissions"),
     feedback: v.optional(v.string()),
+    qcGuidelinesScore: v.optional(v.number()), // 1-5
+    qcAvQualityScore: v.optional(v.number()),  // 1-5
+    qcSelfRelianceScore: v.optional(v.number()), // 1-5
   },
   handler: async (ctx, args) => {
     const identity = await auth.getUserId(ctx);
@@ -240,10 +254,26 @@ export const approveSubmission = mutation({
       reviewedAt: Date.now(),
     });
     
-    // Update milestone
+    // Calculate QC average if scores provided
+    let qcAverage: number | undefined = undefined;
+    if (
+      args.qcGuidelinesScore !== undefined &&
+      args.qcAvQualityScore !== undefined &&
+      args.qcSelfRelianceScore !== undefined
+    ) {
+      qcAverage = Math.round(
+        ((args.qcGuidelinesScore + args.qcAvQualityScore + args.qcSelfRelianceScore) / 3) * 100
+      ) / 100;
+    }
+
+    // Update milestone with QC scores
     await ctx.db.patch(submission.milestoneId, {
       status: "APPROVED",
       approvedAt: Date.now(),
+      qcGuidelinesScore: args.qcGuidelinesScore,
+      qcAvQualityScore: args.qcAvQualityScore,
+      qcSelfRelianceScore: args.qcSelfRelianceScore,
+      qcAverage,
     });
     
     // Update project completed count
@@ -278,9 +308,21 @@ export const approveSubmission = mutation({
       metadata: { 
         milestoneId: submission.milestoneId, 
         editorId: submission.editorId,
-        amount: milestone.payoutAmount,
       },
       createdAt: Date.now(),
+    });
+
+    // Notify editor about approval
+    await notifyUser(ctx, {
+      userId: submission.editorId,
+      type: "editor.submission.approved",
+      title: "Work Approved!",
+      message: `Your submission for "${milestone.title}" has been approved`,
+      data: {
+        projectId: submission.projectId,
+        milestoneId: submission.milestoneId,
+        link: `/projects/${project.slug}`,
+      },
     });
     
     return args.submissionId;
@@ -363,7 +405,20 @@ export const rejectSubmission = mutation({
       },
       createdAt: Date.now(),
     });
-    
+
+    // Notify editor about rejection
+    await notifyUser(ctx, {
+      userId: submission.editorId,
+      type: "editor.submission.rejected",
+      title: "Revision Needed",
+      message: `Your submission for "${milestone.title}" needs revision`,
+      data: {
+        projectId: submission.projectId,
+        milestoneId: submission.milestoneId,
+        link: `/projects/${project.slug}`,
+      },
+    });
+
     return args.submissionId;
   },
 });

@@ -9,7 +9,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { 
   Send, 
-  Image as ImageIcon, 
   Download,
   ExternalLink,
   Loader2,
@@ -117,8 +116,9 @@ export function ProjectChat({ projectId }: ProjectChatProps) {
       {/* Messages */}
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
         {messages === undefined ? (
-          <div className="flex items-center justify-center h-full">
-            <Loader2 className="w-6 h-6 animate-spin text-zinc-500" />
+          <div className="flex items-center justify-center gap-2 py-8 text-zinc-500">
+            <Loader2 className="w-4 h-4 animate-spin" />
+            <span className="text-sm">Loading messages…</span>
           </div>
         ) : messages.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full text-zinc-500">

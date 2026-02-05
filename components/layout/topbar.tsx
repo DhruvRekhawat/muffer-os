@@ -14,6 +14,7 @@ import {
   DropdownMenuTrigger 
 } from "@/components/ui/dropdown-menu";
 import Link from "next/link";
+import { NotificationDropdown } from "@/components/notifications/notification-dropdown";
 
 
 interface TopbarProps {
@@ -53,6 +54,9 @@ export function Topbar({ user }: TopbarProps) {
             <Moon className="w-5 h-5" />
           )}
         </Button>
+
+        {/* Notifications */}
+        <NotificationDropdown />
         
         {/* User menu */}
         <DropdownMenu>

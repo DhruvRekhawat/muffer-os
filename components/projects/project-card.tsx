@@ -2,7 +2,6 @@
 
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Calendar, Users } from "lucide-react";
 import Link from "next/link";
 
 interface Project {
@@ -10,6 +9,7 @@ interface Project {
   slug: string;
   name: string;
   emoji?: string;
+  background?: string;
   status: string;
   pmName: string;
   editorNames: string[];
@@ -42,9 +42,17 @@ export function ProjectCard({ project }: ProjectCardProps) {
     }
   };
   
+  const coverStyle = project.background
+    ? (project.background.startsWith("http") ? { backgroundImage: `url(${project.background})` } : { background: project.background })
+    : undefined;
+
   return (
     <Link href={`/projects/${project.slug}`}>
-      <Card className="p-5 bg-zinc-900/50 border-zinc-800 hover:border-zinc-700 transition-all hover:shadow-lg cursor-pointer group">
+      <Card className="overflow-hidden  border-zinc-800 hover:border-zinc-700 transition-all hover:shadow-lg cursor-pointer group py-0">
+        {project.background && (
+          <div className="h-32 bg-cover bg-center" style={coverStyle} />
+        )}
+        <div className="p-5">
         <div className="flex items-start justify-between mb-4">
           <div className="flex items-center gap-3">
             <span className="text-3xl group-hover:scale-110 transition-transform">
@@ -79,25 +87,6 @@ export function ProjectCard({ project }: ProjectCardProps) {
           </div>
         </div>
         
-        {/* Footer */}
-        <div className="flex items-center justify-between text-sm">
-          <div className="flex items-center gap-4 text-zinc-500">
-            {project.editorNames.length > 0 && (
-              <div className="flex items-center gap-1">
-                <Users className="w-4 h-4" />
-                <span>{project.editorNames.length}</span>
-              </div>
-            )}
-            {project.dueDate && (
-              <div className="flex items-center gap-1">
-                <Calendar className="w-4 h-4" />
-                <span>{new Date(project.dueDate).toLocaleDateString()}</span>
-              </div>
-            )}
-          </div>
-          <span className="text-zinc-400">
-            {project.completedMilestoneCount}/{project.milestoneCount}
-          </span>
         </div>
       </Card>
     </Link>

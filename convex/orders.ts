@@ -1,7 +1,7 @@
 import { v } from "convex/values";
 import { query, mutation, internalMutation } from "./_generated/server";
 import { auth } from "./auth";
-import { Id } from "./_generated/dataModel";
+import { notifyUser } from "./notifications";
 
 // Get all pending orders (orders without associated projects)
 export const listPendingOrders = query({
@@ -107,6 +107,26 @@ export const createManualOrder = mutation({
       status: "PAID",
       createdAt: Date.now(),
     });
+
+    // Notify all SUPER_ADMIN users about new order
+    const superAdmins = await ctx.db
+      .query("users")
+      .withIndex("by_role", (q) => q.eq("role", "SUPER_ADMIN"))
+      .collect();
+
+    for (const admin of superAdmins) {
+      await notifyUser(ctx, {
+        userId: admin._id,
+        type: "sa.order.placed",
+        title: "New Order Received",
+        message: `Order from ${args.clientName || "client"} - ₹${args.totalPrice}`,
+        data: {
+          orderId,
+          amount: args.totalPrice,
+          link: "/orders",
+        },
+      });
+    }
 
     return { orderId };
   },

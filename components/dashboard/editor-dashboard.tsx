@@ -1,6 +1,6 @@
 "use client";
 
-import { useQuery } from "convex/react";
+import { useQuery, useMutation } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -12,7 +12,10 @@ import {
   ArrowRight,
   TrendingUp,
   Clock,
-  CheckCircle2
+  CheckCircle2,
+  Mail,
+  X,
+  Check
 } from "lucide-react";
 import Link from "next/link";
 
@@ -27,6 +30,9 @@ export function EditorDashboard({ user }: EditorDashboardProps) {
   const nextMilestone = useQuery(api.milestones.getNextMilestone, {});
   const missionsWithProgress = useQuery(api.missions.getMissionsWithProgress, {});
   const projects = useQuery(api.projects.listProjects, {});
+  const pendingInvitations = useQuery(api.projects.getMyPendingInvitations, {});
+  const acceptInvitation = useMutation(api.projects.acceptProjectInvitation);
+  const rejectInvitation = useMutation(api.projects.rejectProjectInvitation);
   
   return (
     <div className="space-y-6 animate-fade-in">
@@ -48,8 +54,8 @@ export function EditorDashboard({ user }: EditorDashboardProps) {
                 Complete onboarding to unlock project assignments
               </p>
               <p className="text-sm text-zinc-400 mt-1">
-                Fill your details, accept the NDA, and submit the test project. After admin approval
-                you&apos;ll be able to join real client projects.
+                Fill your details and submit the test project. After admin approval you&apos;ll sign the NDA,
+                then you&apos;ll be able to join real client projects.
               </p>
             </div>
             <Link href="/onboarding">
@@ -57,6 +63,82 @@ export function EditorDashboard({ user }: EditorDashboardProps) {
                 Start onboarding
               </Button>
             </Link>
+          </div>
+        </Card>
+      )}
+
+      {/* Pending Invitations */}
+      {user.status === "ACTIVE" && pendingInvitations && pendingInvitations.length > 0 && (
+        <Card className="p-6 bg-linear-to-r from-blue-500/10 to-indigo-500/10 border-blue-500/20">
+          <div className="flex items-center gap-2 mb-4">
+            <Mail className="w-5 h-5 text-blue-400" />
+            <h2 className="text-lg font-semibold text-zinc-200">Project Invitations</h2>
+          </div>
+          <div className="space-y-4">
+            {pendingInvitations.map((inv) => (
+              <div
+                key={inv._id}
+                className="p-4 bg-zinc-900/50 border border-zinc-800 rounded-lg"
+              >
+                <div className="flex items-start justify-between gap-4">
+                  <div className="flex-1">
+                    <h3 className="font-semibold text-zinc-200">{inv.project.name}</h3>
+                    <p className="text-sm text-zinc-400 mt-1">PM: {inv.pmName}</p>
+                    {inv.project.summary && (
+                      <p className="text-sm text-zinc-500 mt-2 line-clamp-2">
+                        {inv.project.summary}
+                      </p>
+                    )}
+                    {inv.project.deadlineAt && (
+                      <p className="text-xs text-zinc-500 mt-2">
+                        Deadline: {new Date(inv.project.deadlineAt).toLocaleDateString()}
+                      </p>
+                    )}
+                    <div className="mt-3 p-3 bg-emerald-500/10 border border-emerald-500/20 rounded">
+                      <p className="text-sm font-medium text-emerald-400">
+                        Payout Range: ₹{inv.payoutPreview.minPayout.toLocaleString()} - ₹{inv.payoutPreview.maxPayout.toLocaleString()}
+                      </p>
+                      <p className="text-xs text-zinc-400 mt-1">
+                        Base: ₹{inv.payoutPreview.base.toLocaleString()} • BM: {inv.payoutPreview.billableMinutes}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={async () => {
+                        try {
+                          await rejectInvitation({ invitationId: inv._id });
+                        } catch (error) {
+                          alert(error instanceof Error ? error.message : "Failed to reject");
+                        }
+                      }}
+                      className="border-red-500/30 text-red-400 hover:bg-red-500/10"
+                    >
+                      <X className="w-4 h-4" />
+                    </Button>
+                    <Button
+                      size="sm"
+                      onClick={async () => {
+                        try {
+                          const result = await acceptInvitation({ invitationId: inv._id });
+                          if (result?.projectSlug) {
+                            window.location.href = `/projects/${result.projectSlug}`;
+                          }
+                        } catch (error) {
+                          alert(error instanceof Error ? error.message : "Failed to accept");
+                        }
+                      }}
+                      className="bg-emerald-600 hover:bg-emerald-700 text-white"
+                    >
+                      <Check className="w-4 h-4 mr-1" />
+                      Accept
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            ))}
           </div>
         </Card>
       )}
@@ -142,9 +224,6 @@ export function EditorDashboard({ user }: EditorDashboardProps) {
               }>
                 {nextMilestone.status === "REJECTED" ? "Needs Revision" : "In Progress"}
               </Badge>
-              <p className="text-lg font-semibold text-emerald-400 mt-2">
-                ₹{nextMilestone.payoutAmount.toLocaleString()}
-              </p>
             </div>
           </div>
         </Card>

@@ -134,15 +134,26 @@ export const listUsers = query({
   },
 });
 
-// Get available editors (ACTIVE editors)
+// Get available editors (ACTIVE editors), enriched with tierRatePerMin from tierRates if missing
 export const getAvailableEditors = query({
   args: {},
   handler: async (ctx) => {
-    return await ctx.db
+    const editors = await ctx.db
       .query("users")
       .withIndex("by_role", (q) => q.eq("role", "EDITOR"))
       .filter((q) => q.eq(q.field("status"), "ACTIVE"))
       .collect();
+
+    const tierRates = await ctx.db
+      .query("tierRates")
+      .filter((q) => q.eq(q.field("isActive"), true))
+      .collect();
+    const tierToRate = new Map(tierRates.map((tr) => [tr.tier, tr.ratePerMin]));
+
+    return editors.map((editor) => ({
+      ...editor,
+      tierRatePerMin: editor.tierRatePerMin ?? (editor.tier ? tierToRate.get(editor.tier) : undefined) ?? 500,
+    }));
   },
 });
 
@@ -658,27 +669,38 @@ export const getEditorStats = query({
       )
       .collect();
     
-    const activeProjects = projects.filter(p => 
-      p.editorIds.includes(editorId!)
+    // Exclude test projects from active count
+    const activeProjects = projects.filter(p =>
+      p.editorIds.includes(editorId!) && p.isTestProject !== true
     );
-    
-    // Get pending milestones
+
+    // Get pending milestones (exclude milestones on test projects)
     const milestones = await ctx.db
       .query("milestones")
       .withIndex("by_editor", (q) => q.eq("assignedEditorId", editorId))
-      .filter((q) => 
+      .filter((q) =>
         q.or(
           q.eq(q.field("status"), "IN_PROGRESS"),
           q.eq(q.field("status"), "SUBMITTED")
         )
       )
       .collect();
-    
+
+    const uniqueProjectIds = [...new Set(milestones.map((m) => m.projectId))];
+    const testProjectIds = new Set<Id<"projects">>();
+    for (const id of uniqueProjectIds) {
+      const proj = await ctx.db.get(id);
+      if (proj?.isTestProject) testProjectIds.add(id);
+    }
+    const pendingMilestonesCount = milestones.filter(
+      (m) => !testProjectIds.has(m.projectId)
+    ).length;
+
     return {
       unlockedBalance: editor.unlockedBalance,
       lifetimeEarnings: editor.lifetimeEarnings,
       activeProjectsCount: activeProjects.length,
-      pendingMilestonesCount: milestones.length,
+      pendingMilestonesCount,
     };
   },
 });
@@ -753,18 +775,25 @@ export const getEditorsWithProjectCount = query({
       .withIndex("by_role", (q) => q.eq("role", "EDITOR"))
       .filter((q) => q.eq(q.field("status"), "ACTIVE"))
       .collect();
-    
+
+    const tierRates = await ctx.db
+      .query("tierRates")
+      .filter((q) => q.eq(q.field("isActive"), true))
+      .collect();
+    const tierToRate = new Map(tierRates.map((tr) => [tr.tier, tr.ratePerMin]));
+
     // Get all projects
     const allProjects = await ctx.db
       .query("projects")
       .filter((q) => q.neq(q.field("status"), "COMPLETED"))
       .collect();
-    
-    // Calculate project count for each editor
-    return editors.map(editor => {
-      const projectCount = allProjects.filter(p => p.editorIds.includes(editor._id)).length;
+
+    // Calculate project count for each editor; enrich with tierRatePerMin from config if missing
+    return editors.map((editor) => {
+      const projectCount = allProjects.filter((p) => p.editorIds.includes(editor._id)).length;
       return {
         ...editor,
+        tierRatePerMin: editor.tierRatePerMin ?? (editor.tier ? tierToRate.get(editor.tier) : undefined) ?? 500,
         projectCount,
       };
     });

@@ -4,6 +4,7 @@ import { useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
+import { Id } from "@/convex/_generated/dataModel";
 import { useAuth } from "@/lib/auth";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -19,6 +20,9 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { CheckCircle, FileText, Loader2 } from "lucide-react";
+import { PrinciplesModals } from "@/components/onboarding/PrinciplesModals";
+import { TestTaskSelection } from "@/components/onboarding/TestTaskSelection";
+import { NdaMultiStep } from "@/components/onboarding/NdaMultiStep";
 
 function parseCommaList(value: string): string[] {
   return value
@@ -27,11 +31,27 @@ function parseCommaList(value: string): string[] {
     .filter(Boolean);
 }
 
+const NDA_CHECKBOXES_FOR_PDF = [
+  "I understand Muffer is output-based pay, not hourly",
+  "I understand Accept = TAT clock starts",
+  "I understand 2 revision cycles are included per project",
+  "I understand extra revision payout applies only for client scope change",
+  "I understand revisions due to missed guidelines/typos are unpaid",
+  "I understand uncommunicated delay of 60+ minutes triggers reliability deductions",
+  "I understand extension requests must be made 2+ hours before deadline",
+  "I understand \"done\" means approved final delivery, not first export",
+  "I agree to confidentiality and licensed/original assets only",
+];
+
 export default function OnboardingPage() {
   const { user, isLoading } = useAuth();
   const hiring = useQuery(api.editorHiring.getMyEditorHiring, {});
   const updateDetails = useMutation(api.editorHiring.updateMyOnboardingDetails);
   const acceptNda = useMutation(api.editorHiring.acceptNda);
+  const createTestProject = useMutation(api.editorHiring.createTestProject);
+  const completePrinciples = useMutation(api.editorHiring.completePrinciples);
+  const selectTestTask = useMutation(api.editorHiring.selectTestTask);
+  const generateUploadUrl = useMutation(api.chat.generateUploadUrl);
 
   const [phone, setPhone] = useState("");
   const [skills, setSkills] = useState("");
@@ -51,6 +71,7 @@ export default function OnboardingPage() {
   const [ndaViewedToEnd, setNdaViewedToEnd] = useState(false);
   const [saving, setSaving] = useState(false);
   const [accepting, setAccepting] = useState(false);
+  const [creatingTest, setCreatingTest] = useState(false);
 
   const ndaScrollRef = useRef<HTMLDivElement | null>(null);
 
@@ -91,6 +112,28 @@ export default function OnboardingPage() {
   const isEditor = user.role === "EDITOR";
   const isPM = user.role === "PM";
 
+  if (isEditor && !hiring?.hiring?.principlesCompletedAt) {
+    return (
+      <PrinciplesModals
+        onComplete={async () => {
+          await completePrinciples({});
+        }}
+      />
+    );
+  }
+
+  if (isEditor && hiring?.hiring?.principlesCompletedAt && !hiring?.hiring?.testTaskType) {
+    return (
+      <div className="space-y-6 animate-fade-in">
+        <TestTaskSelection
+          onSelect={async (type, deadlineHours) => {
+            await selectTestTask({ type, deadlineHours });
+          }}
+        />
+      </div>
+    );
+  }
+
   const handleSave = async () => {
     setSaving(true);
     try {
@@ -124,6 +167,54 @@ export default function OnboardingPage() {
     }
   };
 
+  const handleCreateTestProject = async () => {
+    setCreatingTest(true);
+    try {
+      await createTestProject({});
+    } finally {
+      setCreatingTest(false);
+    }
+  };
+
+  const showNdaCard = isPM;
+  const showNdaDialog = showNdaCard;
+  const showEditorNdaMultiStep = isEditor && hiring?.hiring?.status === "APPROVED" && !hiring?.hiring?.ndaAcceptedAt;
+
+  const handleNdaSign = async (fullName: string) => {
+    let storageId: string | undefined;
+    try {
+      const pdfRes = await fetch("/api/generate-agreement-pdf", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ fullName, checkboxes: NDA_CHECKBOXES_FOR_PDF }),
+      });
+      if (pdfRes.ok) {
+        const pdfBlob = await pdfRes.blob();
+        const uploadUrl = await generateUploadUrl({});
+        const uploadRes = await fetch(uploadUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/pdf" },
+          body: pdfBlob,
+        });
+        if (uploadRes.ok) {
+          const data = await uploadRes.json();
+          storageId = data.storageId;
+        }
+      }
+    } catch {
+      // Continue without PDF
+    }
+    setAccepting(true);
+    try {
+      await acceptNda({
+        fullName: fullName.trim(),
+        ...(storageId && { signedAgreementStorageId: storageId as Id<"_storage"> }),
+      });
+    } finally {
+      setAccepting(false);
+    }
+  };
+
   return (
     <div className="space-y-6 animate-fade-in">
       <div className="flex items-start justify-between gap-4">
@@ -133,7 +224,7 @@ export default function OnboardingPage() {
           </h1>
           <p className="text-zinc-400 mt-1">
             {isEditor
-              ? "Complete your details, accept the NDA, and submit the test project."
+              ? "Complete your details and submit the test project. After admin approval, you'll sign the NDA."
               : "Complete your details and accept the NDA. After admin approval, you’ll be able to manage projects."}
           </p>
         </div>
@@ -252,77 +343,134 @@ export default function OnboardingPage() {
         </Button>
       </Card>
 
-      <Card className="p-6 bg-zinc-900/50 border-zinc-800 space-y-4">
-        <h2 className="text-lg font-semibold text-zinc-200">2) Agreement (Digital)</h2>
-        <div className="flex items-center justify-between gap-3 flex-wrap">
-          <Button
-            type="button"
-            variant="outline"
-            onClick={() => {
-              setNdaOpen(true);
-              setNdaOpenedOnce(true);
-            }}
-            className="border-zinc-700 text-zinc-300 hover:bg-zinc-800"
-          >
-            <FileText className="w-4 h-4 mr-2" />
-            Open agreement (required)
-          </Button>
-          {ndaViewedToEnd && (
-            <Badge className="bg-emerald-500/10 text-emerald-400 border-emerald-500/20">
-              ✅ Reached end
-            </Badge>
-          )}
-          {hiring?.hiring?.ndaAcceptedAt && (
-            <Badge className="bg-emerald-500/10 text-emerald-400 border-emerald-500/20">
-              Accepted
-            </Badge>
-          )}
-        </div>
-
-        <div className="flex items-start gap-3">
-          <input
-            type="checkbox"
-            checked={ndaChecked}
-            onChange={(e) => setNdaChecked(e.target.checked)}
-            disabled={!ndaOpenedOnce || !ndaViewedToEnd}
-            className="mt-1"
-          />
-          <div className="flex-1">
-            <p className="text-sm text-zinc-300">
-              I have read and agree to the Muffer Partner Agreement.
-            </p>
-            <p className="text-xs text-zinc-500">
-              This records your typed full name and a timestamp. You must open the agreement and scroll to the end before signing.
-            </p>
+      {isEditor && (
+        <Card className="p-6 bg-zinc-900/50 border-zinc-800 space-y-3">
+          <h2 className="text-lg font-semibold text-zinc-200">2) Test project</h2>
+          <p className="text-sm text-zinc-400">
+            Your test project won&apos;t appear in the Projects list. Create it below, then open it to submit your deliverable in the milestone form (Google Drive link + notes) — not in chat.
+          </p>
+          <div className="flex gap-2 flex-wrap">
+            {hiring?.testProject?.slug ? (
+              <Link href={`/projects/${hiring.testProject.slug}`}>
+                <Button className="bg-emerald-600 hover:bg-emerald-700 text-white">
+                  Open test project
+                </Button>
+              </Link>
+            ) : hiring?.hiring?.status === "ONBOARDING" && !hiring?.hiring?.testTaskType ? (
+              <Button
+                onClick={handleCreateTestProject}
+                disabled={creatingTest}
+                className="bg-emerald-600 hover:bg-emerald-700 text-white"
+              >
+                {creatingTest ? <Loader2 className="w-4 h-4 animate-spin" /> : "Create test project"}
+              </Button>
+            ) : null}
           </div>
-        </div>
+        </Card>
+      )}
 
-        <div className="space-y-2">
-          <label className="text-sm text-zinc-400">Type your full name</label>
-          <Input
-            value={ndaName}
-            onChange={(e) => setNdaName(e.target.value)}
-            placeholder={user.name}
-            disabled={!ndaOpenedOnce || !ndaViewedToEnd}
-            className="bg-zinc-800 border-zinc-700 text-zinc-100"
-          />
-        </div>
+      {isEditor && hiring?.hiring?.status === "APPROVED" && hiring?.hiring?.ndaAcceptedAt && (
+        <Card className="p-6 bg-zinc-900/50 border-zinc-800 space-y-3">
+          <h2 className="text-lg font-semibold text-zinc-200">3) NDA</h2>
+          <p className="text-sm text-emerald-400">You&apos;ve signed the NDA. You&apos;re all set.</p>
+        </Card>
+      )}
 
-        <Button
-          onClick={handleAccept}
-          disabled={accepting || !ndaOpenedOnce || !ndaViewedToEnd || !ndaChecked || !ndaName.trim()}
-          className="bg-linear-to-r from-rose-500 to-orange-500 hover:from-rose-600 hover:to-orange-600 text-white"
-        >
-          {accepting ? (
-            <Loader2 className="w-4 h-4 animate-spin" />
-          ) : (
-            <>
-              <CheckCircle className="w-4 h-4 mr-2" />
-              {isEditor ? "Accept agreement & create test project" : "Accept agreement & submit for approval"}
-            </>
-          )}
-        </Button>
+      {showEditorNdaMultiStep && (
+        <Card className="p-6 bg-zinc-900/50 border-zinc-800 space-y-4">
+          <h2 className="text-lg font-semibold text-zinc-200">3) Sign NDA (after approval)</h2>
+          <p className="text-sm text-zinc-400">
+            Acknowledge each term below, then sign with your full name.
+          </p>
+          <NdaMultiStep userName={user.name ?? ""} onSign={handleNdaSign} />
+        </Card>
+      )}
 
+      {showNdaCard && (
+        <Card className="p-6 bg-zinc-900/50 border-zinc-800 space-y-4">
+          <h2 className="text-lg font-semibold text-zinc-200">{isEditor ? "3) Sign NDA (after approval)" : "2) Agreement (Digital)"}</h2>
+          <div className="flex items-center justify-between gap-3 flex-wrap">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                setNdaOpen(true);
+                setNdaOpenedOnce(true);
+              }}
+              className="border-zinc-700 text-zinc-300 hover:bg-zinc-800"
+            >
+              <FileText className="w-4 h-4 mr-2" />
+              Open agreement (required)
+            </Button>
+            {ndaViewedToEnd && (
+              <Badge className="bg-emerald-500/10 text-emerald-400 border-emerald-500/20">
+                ✅ Reached end
+              </Badge>
+            )}
+            {hiring?.hiring?.ndaAcceptedAt && (
+              <Badge className="bg-emerald-500/10 text-emerald-400 border-emerald-500/20">
+                Accepted
+              </Badge>
+            )}
+          </div>
+
+          <div className="flex items-start gap-3">
+            <input
+              type="checkbox"
+              checked={ndaChecked}
+              onChange={(e) => setNdaChecked(e.target.checked)}
+              disabled={!ndaOpenedOnce || !ndaViewedToEnd}
+              className="mt-1"
+            />
+            <div className="flex-1">
+              <p className="text-sm text-zinc-300">
+                I have read and agree to the Muffer Partner Agreement.
+              </p>
+              <p className="text-xs text-zinc-500">
+                This records your typed full name and a timestamp. You must open the agreement and scroll to the end before signing.
+              </p>
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-sm text-zinc-400">Type your full name</label>
+            <Input
+              value={ndaName}
+              onChange={(e) => setNdaName(e.target.value)}
+              placeholder={user.name}
+              disabled={!ndaOpenedOnce || !ndaViewedToEnd}
+              className="bg-zinc-800 border-zinc-700 text-zinc-100"
+            />
+          </div>
+
+          <Button
+            onClick={handleAccept}
+            disabled={accepting || !ndaOpenedOnce || !ndaViewedToEnd || !ndaChecked || !ndaName.trim()}
+            className="bg-linear-to-r from-rose-500 to-orange-500 hover:from-rose-600 hover:to-orange-600 text-white"
+          >
+            {accepting ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
+              <>
+                <CheckCircle className="w-4 h-4 mr-2" />
+                {isPM ? "Accept agreement & submit for approval" : "Accept agreement"}
+              </>
+            )}
+          </Button>
+        </Card>
+      )}
+
+      {isPM && (
+        <Card className="p-6 bg-zinc-900/50 border-zinc-800 space-y-3">
+          <h2 className="text-lg font-semibold text-zinc-200">3) Approval</h2>
+          <p className="text-sm text-zinc-400">
+            Once you&apos;re approved by an admin, you&apos;ll be able to start getting projects. Please stay active on
+            email/WhatsApp — the admin may reach out for additional info.
+          </p>
+        </Card>
+      )}
+
+      {showNdaDialog && (
         <AlertDialog open={ndaOpen} onOpenChange={setNdaOpen}>
           <AlertDialogContent className="w-[95vw] h-[95vh] max-w-none p-0 overflow-hidden min-h-0">
             <div className="flex flex-col h-full min-h-0">
@@ -569,35 +717,7 @@ export default function OnboardingPage() {
             </div>
           </AlertDialogContent>
         </AlertDialog>
-      </Card>
-
-      {isEditor ? (
-        <Card className="p-6 bg-zinc-900/50 border-zinc-800 space-y-3">
-          <h2 className="text-lg font-semibold text-zinc-200">3) Test project</h2>
-          <p className="text-sm text-zinc-400">
-            Your test project won’t appear in the Projects list. Use the button below to open it directly.
-            Submit your deliverable in the milestone form (Google Drive link + notes) — not in chat.
-          </p>
-          <div className="flex gap-2 flex-wrap">
-            {hiring?.testProject?.slug && (
-              <Link href={`/projects/${hiring.testProject.slug}`}>
-                <Button className="bg-emerald-600 hover:bg-emerald-700 text-white">
-                  Open test project
-                </Button>
-              </Link>
-            )}
-          </div>
-        </Card>
-      ) : (
-        <Card className="p-6 bg-zinc-900/50 border-zinc-800 space-y-3">
-          <h2 className="text-lg font-semibold text-zinc-200">3) Approval</h2>
-          <p className="text-sm text-zinc-400">
-            Once you’re approved by an admin, you’ll be able to start getting projects. Please stay active on
-            email/WhatsApp — the admin may reach out for additional info.
-          </p>
-        </Card>
       )}
     </div>
   );
 }
-

@@ -8,8 +8,6 @@ type Bucket = "day" | "month";
 type ProjectStatus = "ACTIVE" | "AT_RISK" | "DELAYED" | "COMPLETED";
 type OrderStatus = "PAID" | "IN_PROGRESS" | "COMPLETED";
 type ServiceType = "EditMax" | "ContentMax" | "AdMax" | "Other";
-type MilestoneStatus = "LOCKED" | "IN_PROGRESS" | "SUBMITTED" | "APPROVED" | "REJECTED";
-
 function clampRange(args: { from?: number; to?: number }) {
   const from = args.from;
   const to = args.to;
@@ -57,10 +55,11 @@ export const getFinanceOverview = query({
     const bucket: Bucket = args.bucket ?? "day";
     const range = clampRange({ from: args.from, to: args.to });
 
-    const [orders, milestones, payoutRequests] = await Promise.all([
+    const [orders, , payoutRequests, projects] = await Promise.all([
       ctx.db.query("orders").collect() as Promise<Array<Doc<"orders">>>,
       ctx.db.query("milestones").collect() as Promise<Array<Doc<"milestones">>>,
       ctx.db.query("payoutRequests").collect() as Promise<Array<Doc<"payoutRequests">>>,
+      ctx.db.query("projects").collect() as Promise<Array<Doc<"projects">>>,
     ]);
 
     const ordersInRange = orders.filter((o) => inRange(o.createdAt, range));
@@ -76,16 +75,15 @@ export const getFinanceOverview = query({
       revenueByService[o.serviceType] = (revenueByService[o.serviceType] || 0) + o.totalPrice;
     }
 
-    // Note: milestones don't have their own financial timestamp; for Finance v1 we treat them as
-    // belonging to the project/order window via project aggregation (handled in listProjectFinance).
-    // Here we still provide global aggregates across all milestones for useful "run rate" context.
-    const expectedCostTotal = milestones.reduce((sum, m) => sum + m.payoutAmount, 0);
-    const approvedCostTotal = milestones
-      .filter((m) => m.status === "APPROVED")
-      .reduce((sum, m) => sum + m.payoutAmount, 0);
-    const remainingLiabilityTotal = milestones
-      .filter((m) => m.status !== "APPROVED")
-      .reduce((sum, m) => sum + m.payoutAmount, 0);
+    // Note: Costs are now calculated at project level (editorCapAmount) rather than milestone level
+    // Calculate costs from projects' editorCapAmount instead
+    const expectedCostTotal = projects.reduce((sum: number, p: Doc<"projects">) => sum + (p.editorCapAmount || 0), 0);
+    const approvedCostTotal = projects
+      .filter((p: Doc<"projects">) => p.status === "COMPLETED")
+      .reduce((sum: number, p: Doc<"projects">) => sum + (p.editorCapAmount || 0), 0);
+    const remainingLiabilityTotal = projects
+      .filter((p: Doc<"projects">) => p.status !== "COMPLETED")
+      .reduce((sum: number, p: Doc<"projects">) => sum + (p.editorCapAmount || 0), 0);
 
     const grossMarginTotal = revenueTotal - expectedCostTotal;
 
@@ -140,7 +138,7 @@ export const listProjectFinance = query({
 
     const range = clampRange({ from: args.from, to: args.to });
 
-    const [projects, milestones] = await Promise.all([
+    const [projects] = await Promise.all([
       (args.status
         ? ctx.db
             .query("projects")
@@ -157,14 +155,6 @@ export const listProjectFinance = query({
       if (o) orderById.set(o._id, o);
     }
 
-    const milestonesByProject = new Map<Id<"projects">, Array<{ payoutAmount: number; status: MilestoneStatus }>>();
-    for (const m of milestones) {
-      const key = m.projectId as Id<"projects">;
-      const existing = milestonesByProject.get(key) || [];
-      existing.push({ payoutAmount: m.payoutAmount, status: m.status as MilestoneStatus });
-      milestonesByProject.set(key, existing);
-    }
-
     const rows = [];
     for (const p of projects) {
       const order = orderById.get(p.orderId);
@@ -172,12 +162,10 @@ export const listProjectFinance = query({
 
       if (!inRange(order.createdAt, range)) continue;
 
-      const ms = milestonesByProject.get(p._id) || [];
-      const expectedCost = ms.reduce((sum, m) => sum + m.payoutAmount, 0);
-      const approvedCost = ms.filter((m) => m.status === "APPROVED").reduce((sum, m) => sum + m.payoutAmount, 0);
-      const remainingLiability = ms
-        .filter((m) => m.status !== "APPROVED")
-        .reduce((sum, m) => sum + m.payoutAmount, 0);
+      // Calculate costs from project's editorCapAmount instead of milestone payoutAmount
+      const expectedCost = p.editorCapAmount || 0;
+      const approvedCost = p.status === "COMPLETED" ? (p.editorCapAmount || 0) : 0;
+      const remainingLiability = p.status !== "COMPLETED" ? (p.editorCapAmount || 0) : 0;
       const margin = order.totalPrice - expectedCost;
 
       rows.push({
@@ -218,7 +206,7 @@ export const exportProjectFinanceCsv = query({
 
     const data = await (async () => {
       const range = clampRange({ from: args.from, to: args.to });
-      const [projects, milestones] = await Promise.all([
+      const [projects] = await Promise.all([
         (args.status
           ? ctx.db
               .query("projects")
@@ -233,26 +221,16 @@ export const exportProjectFinanceCsv = query({
       const orderById = new Map<Id<"orders">, Doc<"orders">>();
       for (const o of orders) if (o) orderById.set(o._id, o);
 
-      const milestonesByProject = new Map<Id<"projects">, Array<{ payoutAmount: number; status: MilestoneStatus }>>();
-      for (const m of milestones) {
-        const key = m.projectId as Id<"projects">;
-        const existing = milestonesByProject.get(key) || [];
-        existing.push({ payoutAmount: m.payoutAmount, status: m.status as MilestoneStatus });
-        milestonesByProject.set(key, existing);
-      }
-
       const out = [];
       for (const p of projects) {
         const order = orderById.get(p.orderId);
         if (!order) continue;
         if (!inRange(order.createdAt, range)) continue;
 
-        const ms = milestonesByProject.get(p._id) || [];
-        const expectedCost = ms.reduce((sum, m) => sum + m.payoutAmount, 0);
-        const approvedCost = ms.filter((m) => m.status === "APPROVED").reduce((sum, m) => sum + m.payoutAmount, 0);
-        const remainingLiability = ms
-          .filter((m) => m.status !== "APPROVED")
-          .reduce((sum, m) => sum + m.payoutAmount, 0);
+        // Calculate costs from project's editorCapAmount instead of milestone payoutAmount
+        const expectedCost = p.editorCapAmount || 0;
+        const approvedCost = p.status === "COMPLETED" ? (p.editorCapAmount || 0) : 0;
+        const remainingLiability = p.status !== "COMPLETED" ? (p.editorCapAmount || 0) : 0;
         const margin = order.totalPrice - expectedCost;
 
         out.push({

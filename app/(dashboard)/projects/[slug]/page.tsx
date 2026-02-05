@@ -63,22 +63,40 @@ export default function ProjectPage({ params }: ProjectPageProps) {
       {/* Project header */}
       <ProjectHeader project={project} />
       
-      {/* Main content: Chat (center) and Milestones (right) */}
+      {/* Main content: Test projects = brief center + milestones right; normal = chat center + brief + milestones right */}
       <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
-        {/* Center panel - Chat (takes 3/5 of width) */}
-        <div className="lg:col-span-3">
-          <ProjectChat projectId={project._id} />
-        </div>
-        
-        {/* Right panel - Milestones (takes 2/5 of width) */}
-        <div className="lg:col-span-2 space-y-6">
-          <ProjectSummaryCard projectId={project._id} />
-          <MilestonesList 
-            project={project} 
-            milestones={milestones || []} 
-            currentUser={user ? { ...user, role: user.role ?? "" } : null}
-          />
-        </div>
+        {project.isTestProject ? (
+          <>
+            {/* Center panel - Brief only (test projects: no chat) */}
+            <div className="lg:col-span-3">
+              <ProjectSummaryCard projectId={project._id} />
+            </div>
+            {/* Right panel - Milestones */}
+            <div className="lg:col-span-2 space-y-6">
+              <MilestonesList 
+                project={project} 
+                milestones={milestones || []} 
+                currentUser={user ? { ...user, role: user.role ?? "" } : null}
+              />
+            </div>
+          </>
+        ) : (
+          <>
+            {/* Center panel - Chat */}
+            <div className="lg:col-span-3">
+              <ProjectChat projectId={project._id} />
+            </div>
+            {/* Right panel - Brief + Milestones */}
+            <div className="lg:col-span-2 space-y-6">
+              <ProjectSummaryCard projectId={project._id} />
+              <MilestonesList 
+                project={project} 
+                milestones={milestones || []} 
+                currentUser={user ? { ...user, role: user.role ?? "" } : null}
+              />
+            </div>
+          </>
+        )}
       </div>
     </div>
   );

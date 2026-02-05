@@ -9,9 +9,10 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Calendar, Users, Settings, Loader2, Edit2, Check, X } from "lucide-react";
+import { Settings, Loader2, Edit2, Check, X, AlertTriangle, Clock, TrendingUp, ImageIcon } from "lucide-react";
 import { Id } from "@/convex/_generated/dataModel";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { ProjectInvitationPanel } from "./project-invitation-panel";
+import { BackgroundPicker } from "@/components/ui/background-picker";
 import {
   AlertDialog,
   AlertDialogContent,
@@ -35,6 +36,10 @@ interface Project {
   completedMilestoneCount: number;
   dueDate?: number;
   createdAt: number;
+  billableMinutes?: number;
+  skuCode?: string;
+  editorCapAmount?: number;
+  deadlineAt?: number;
 }
 
 interface ProjectHeaderProps {
@@ -48,8 +53,6 @@ export function ProjectHeader({ project }: ProjectHeaderProps) {
   const [isEditing, setIsEditing] = useState(false);
   const [isEditingDueDate, setIsEditingDueDate] = useState(false);
   const [selectedEmoji, setSelectedEmoji] = useState(project.emoji || "🎬");
-  const [selectedEditorId, setSelectedEditorId] = useState<Id<"users"> | null>(null);
-  const [editorAssignError, setEditorAssignError] = useState<string>("");
   const [isCompleteDialogOpen, setIsCompleteDialogOpen] = useState(false);
   const [isCompletingProject, setIsCompletingProject] = useState(false);
   const [completeProjectError, setCompleteProjectError] = useState<string>("");
@@ -57,26 +60,29 @@ export function ProjectHeader({ project }: ProjectHeaderProps) {
     project.dueDate ? new Date(project.dueDate).toISOString().split('T')[0] : ""
   );
   const [isLoading, setIsLoading] = useState(false);
-  const [isAssigningEditor, setIsAssigningEditor] = useState(false);
+  const [showBackgroundPicker, setShowBackgroundPicker] = useState(false);
   
   const updateProject = useMutation(api.projects.updateProject);
-  const assignEditorToProject = useMutation(api.projects.assignEditorToProject);
+
+  const backgroundStyle = project.background
+    ? (project.background.startsWith("http") ? { backgroundImage: `url(${project.background})` } : { background: project.background })
+    : undefined;
   
   const canManageThisProject =
     user?.role === "SUPER_ADMIN" ||
     (user?.role === "PM" && user._id === project.pmId);
-  const editorsWithCount = useQuery(
-    api.users.getEditorsWithProjectCount,
-    canManageThisProject ? {} : "skip"
+  // Get projected earnings for editors; editors can also change icon/background
+  const isEditor = user?.role === "EDITOR" && project.editorIds.includes(user._id);
+  const canChangeBackground = canManageThisProject || isEditor;
+  const projectedEarnings = useQuery(
+    api.payoutEngine.getCurrentProjectedEarnings,
+    isEditor && user ? { projectId: project._id, editorId: user._id } : "skip"
   );
   
   const progress = project.milestoneCount > 0 
     ? Math.round((project.completedMilestoneCount / project.milestoneCount) * 100) 
     : 0;
 
-  const availableEditors =
-    (editorsWithCount ?? []).filter((e) => !project.editorIds.includes(e._id));
-  
   const handleEmojiChange = async (emoji: string) => {
     setSelectedEmoji(emoji);
     setIsLoading(true);
@@ -107,50 +113,77 @@ export function ProjectHeader({ project }: ProjectHeaderProps) {
   };
   
   return (
-    <Card className="p-6 bg-zinc-900/50 border-zinc-800 overflow-hidden relative">
-      {/* Background gradient */}
-      <div className="absolute inset-0 bg-gradient-to-br from-rose-500/5 to-orange-500/5" />
-      
-      <div className="relative">
-        <div className="flex items-start justify-between">
-          <div className="flex items-center gap-4">
-            {/* Emoji picker */}
-            <div className="relative">
-              <button
-                onClick={() => setIsEditing(!isEditing)}
-                className="w-16 h-16 rounded-2xl bg-zinc-800/80 flex items-center justify-center text-4xl hover:bg-zinc-700/80 transition-colors"
-              >
-                {isLoading ? (
-                  <Loader2 className="w-6 h-6 animate-spin text-zinc-400" />
-                ) : (
-                  selectedEmoji
-                )}
-              </button>
-              
-              {isEditing && (
-                <div className="absolute top-full left-0 mt-2 p-2 bg-zinc-800 rounded-xl border border-zinc-700 shadow-xl z-10 grid grid-cols-4 gap-1">
-                  {emojis.map((emoji) => (
-                    <button
-                      key={emoji}
-                      onClick={() => handleEmojiChange(emoji)}
-                      className="w-10 h-10 rounded-lg hover:bg-zinc-700 flex items-center justify-center text-xl transition-colors"
-                    >
-                      {emoji}
-                    </button>
-                  ))}
-                </div>
+    <Card className="overflow-hidden pt-0">
+      {/* Cover / background area */}
+      <div
+        className="relative h-28 bg-gradient-to-br from-rose-500/10 to-orange-500/10 bg-cover bg-center"
+        style={backgroundStyle}
+      >
+        <div className="absolute inset-0 bg-black/20" />
+        <div className="absolute bottom-4 left-6 flex items-center gap-3">
+          <div className="relative">
+            <button
+              onClick={() => setIsEditing(!isEditing)}
+              className="w-14 h-14 rounded-xl bg-zinc-900/80 flex items-center justify-center text-3xl hover:bg-zinc-800/80 transition-colors border border-zinc-700/50"
+            >
+              {isLoading ? (
+                <Loader2 className="w-5 h-5 animate-spin text-zinc-400" />
+              ) : (
+                selectedEmoji
               )}
-            </div>
-            
-            <div>
-              <div className="flex items-center gap-3 mb-1">
-                <h1 className="text-2xl font-bold text-zinc-100">{project.name}</h1>
-                {getStatusBadge(project.status)}
+            </button>
+            {isEditing && (
+              <div className="absolute top-full left-0 mt-3 p-3 bg-zinc-800 rounded-xl border border-zinc-700 shadow-xl z-20 grid grid-cols-4 gap-2 min-w-[180px]">
+                {emojis.map((emoji) => (
+                  <button
+                    key={emoji}
+                    type="button"
+                    onClick={() => handleEmojiChange(emoji)}
+                    className="w-10 h-10 rounded-lg hover:bg-zinc-700 flex items-center justify-center text-xl transition-colors focus:outline-none focus:ring-2 focus:ring-rose-500/50"
+                  >
+                    {emoji}
+                  </button>
+                ))}
               </div>
-              <p className="text-zinc-400">PM: {project.pmName}</p>
-            </div>
+            )}
           </div>
-          
+          {canChangeBackground && (
+            <button
+              type="button"
+              onClick={() => setShowBackgroundPicker(!showBackgroundPicker)}
+              className="text-xs text-zinc-400 hover:text-zinc-200 flex items-center gap-1"
+            >
+              <ImageIcon className="w-3.5 h-3.5" />
+              {project.background ? "Change cover" : "Add cover"}
+            </button>
+          )}
+        </div>
+        {showBackgroundPicker && canChangeBackground && (
+          <div className="absolute top-full left-0 right-0 mt-2 p-4 bg-zinc-800 rounded-xl border border-zinc-700 shadow-xl z-10">
+            <BackgroundPicker
+              value={project.background ?? null}
+              onChange={async (v) => {
+                try {
+                  await updateProject({ projectId: project._id, background: v || undefined });
+                  setShowBackgroundPicker(false);
+                } catch {
+    // ignore
+  }
+              }}
+            />
+          </div>
+        )}
+      </div>
+
+      <div className="p-6 relative">
+        <div className="flex items-start justify-between">
+          <div>
+            <div className="flex items-center gap-3 mb-1">
+              <h1 className="text-2xl font-bold text-zinc-100">{project.name}</h1>
+              {getStatusBadge(project.status)}
+            </div>
+            <p className="text-zinc-400 text-sm">PM: {project.pmName}</p>
+          </div>
           <div className="flex items-center gap-2">
             {canManageThisProject && project.status !== "COMPLETED" && (
               <>
@@ -165,7 +198,6 @@ export function ProjectHeader({ project }: ProjectHeaderProps) {
                 >
                   Mark complete
                 </Button>
-
                 <AlertDialog
                   open={isCompleteDialogOpen}
                   onOpenChange={(open) => {
@@ -180,33 +212,18 @@ export function ProjectHeader({ project }: ProjectHeaderProps) {
                         This will mark the project status as <b>Completed</b>. You can do this even if there are no milestones.
                       </AlertDialogDescription>
                     </AlertDialogHeader>
-
-                    {completeProjectError && (
-                      <p className="text-sm text-red-400">{completeProjectError}</p>
-                    )}
-
+                    {completeProjectError && <p className="text-sm text-red-400">{completeProjectError}</p>}
                     <AlertDialogFooter>
-                      <Button
-                        variant="outline"
-                        onClick={() => setIsCompleteDialogOpen(false)}
-                        disabled={isCompletingProject}
-                      >
-                        Cancel
-                      </Button>
+                      <Button variant="outline" onClick={() => setIsCompleteDialogOpen(false)} disabled={isCompletingProject}>Cancel</Button>
                       <Button
                         onClick={async () => {
                           setIsCompletingProject(true);
                           setCompleteProjectError("");
                           try {
-                            await updateProject({
-                              projectId: project._id,
-                              status: "COMPLETED",
-                            });
+                            await updateProject({ projectId: project._id, status: "COMPLETED" });
                             setIsCompleteDialogOpen(false);
                           } catch (e) {
-                            setCompleteProjectError(
-                              e instanceof Error ? e.message : "Failed to complete project"
-                            );
+                            setCompleteProjectError(e instanceof Error ? e.message : "Failed to complete project");
                           } finally {
                             setIsCompletingProject(false);
                           }
@@ -214,216 +231,150 @@ export function ProjectHeader({ project }: ProjectHeaderProps) {
                         disabled={isCompletingProject}
                         className="bg-emerald-600 hover:bg-emerald-700"
                       >
-                        {isCompletingProject ? (
-                          <Loader2 className="w-4 h-4 animate-spin" />
-                        ) : (
-                          "Confirm"
-                        )}
+                        {isCompletingProject ? <Loader2 className="w-4 h-4 animate-spin" /> : "Confirm"}
                       </Button>
                     </AlertDialogFooter>
                   </AlertDialogContent>
                 </AlertDialog>
               </>
             )}
-
-            <Button
-              variant="outline"
-              size="sm"
-              className="border-zinc-700 text-zinc-400 hover:bg-zinc-800"
-            >
+            <Button variant="outline" size="sm" className="border-zinc-700 text-zinc-400 hover:bg-zinc-800">
               <Settings className="w-4 h-4" />
             </Button>
           </div>
         </div>
-        
-        {/* Stats */}
-        <div className="mt-6 grid grid-cols-4 gap-4">
-          <div className="p-3 bg-zinc-800/50 rounded-lg">
-            <p className="text-xs text-zinc-500 mb-1">Progress</p>
-            <div className="flex items-center gap-2">
-              <div className="flex-1 h-2 bg-zinc-700 rounded-full overflow-hidden">
-                <div 
-                  className="h-full bg-gradient-to-r from-rose-500 to-orange-500 rounded-full"
-                  style={{ width: `${progress}%` }}
-                />
-              </div>
-              <span className="text-sm font-semibold text-zinc-200">{progress}%</span>
-            </div>
+
+        {/* Progress bar */}
+        <div className="mt-4">
+          <div className="flex items-center justify-between text-sm mb-1">
+            <span className="text-zinc-500">Progress</span>
+            <span className="text-zinc-300 font-medium">{progress}%</span>
           </div>
-          
-          <div className="p-3 bg-zinc-800/50 rounded-lg">
-            <p className="text-xs text-zinc-500 mb-1">Milestones</p>
-            <p className="text-lg font-semibold text-zinc-200">
-              {project.completedMilestoneCount}/{project.milestoneCount}
-            </p>
-          </div>
-          
-          <div className="p-3 bg-zinc-800/50 rounded-lg">
-            <p className="text-xs text-zinc-500 mb-1">Editors</p>
-            <div className="flex items-center gap-2">
-              <Users className="w-4 h-4 text-zinc-400" />
-              <span className="text-lg font-semibold text-zinc-200">
-                {project.editorNames.length || 0}
-              </span>
-            </div>
-          </div>
-          
-          <div className="p-3 bg-zinc-800/50 rounded-lg">
-            <div className="flex items-center justify-between mb-1">
-              <p className="text-xs text-zinc-500">Due Date</p>
-              {canManageThisProject && !isEditingDueDate && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setIsEditingDueDate(true)}
-                  className="h-4 w-4 p-0 text-zinc-500 hover:text-zinc-300"
-                >
-                  <Edit2 className="w-3 h-3" />
-                </Button>
-              )}
-            </div>
-            {isEditingDueDate && canManageThisProject ? (
-              <div className="flex items-center gap-2">
-                <Input
-                  type="date"
-                  value={dueDate}
-                  onChange={(e) => setDueDate(e.target.value)}
-                  className="h-8 text-xs bg-zinc-700 border-zinc-600 text-zinc-100"
-                />
-                <Button
-                  size="sm"
-                  onClick={async () => {
-                    setIsLoading(true);
-                    try {
-                      await updateProject({
-                        projectId: project._id,
-                        dueDate: dueDate ? new Date(dueDate).getTime() : undefined,
-                      });
-                      setIsEditingDueDate(false);
-                    } finally {
-                      setIsLoading(false);
-                    }
-                  }}
-                  disabled={isLoading}
-                  className="h-8 px-2 bg-emerald-600 hover:bg-emerald-700"
-                >
-                  <Check className="w-3 h-3" />
-                </Button>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  onClick={() => {
-                    setDueDate(project.dueDate ? new Date(project.dueDate).toISOString().split('T')[0] : "");
-                    setIsEditingDueDate(false);
-                  }}
-                  className="h-8 px-2"
-                >
-                  <X className="w-3 h-3" />
-                </Button>
-              </div>
-            ) : (
-              <div className="flex items-center gap-2">
-                <Calendar className="w-4 h-4 text-zinc-400" />
-                <span className="text-sm font-semibold text-zinc-200">
-                  {project.dueDate 
-                    ? new Date(project.dueDate).toLocaleDateString() 
-                    : "Not set"}
-                </span>
-              </div>
-            )}
+          <div className="h-1.5 w-full bg-zinc-800 rounded-full overflow-hidden">
+            <div className="h-full bg-gradient-to-r from-rose-500 to-orange-500 rounded-full transition-all" style={{ width: `${progress}%` }} />
           </div>
         </div>
 
-        {/* Editors list + add editor (SA/PM only) */}
-        <div className="mt-4 flex flex-col gap-3">
-          <div className="flex flex-wrap gap-2">
-            {project.editorNames.length > 0 ? (
-              project.editorNames.map((name) => (
-                <Badge
-                  key={name}
-                  className="bg-zinc-800/70 text-zinc-200 border-zinc-700"
-                >
-                  {name}
-                </Badge>
-              ))
-            ) : (
-              <p className="text-sm text-zinc-500">No editors assigned yet.</p>
+        {/* Inline stats */}
+        <div className="mt-4 flex flex-wrap gap-6 text-sm">
+          <span className="text-zinc-500">
+            Milestones <span className="text-zinc-200 font-medium">{project.completedMilestoneCount}/{project.milestoneCount}</span>
+          </span>
+          <span className="text-zinc-500">
+            Due <span className="text-zinc-200 font-medium">{project.dueDate ? new Date(project.dueDate).toLocaleDateString() : "Not set"}</span>
+            {canManageThisProject && !isEditingDueDate && (
+              <Button variant="ghost" size="sm" className="h-5 w-5 p-0 ml-1 text-zinc-500 hover:text-zinc-300" onClick={() => setIsEditingDueDate(true)}>
+                <Edit2 className="w-3 h-3" />
+              </Button>
             )}
-          </div>
-
-          {canManageThisProject && (
-            <div className="flex flex-col gap-2">
-              <div className="flex items-center gap-2">
-                <Select
-                  value={selectedEditorId ?? undefined}
-                  onValueChange={(v) => {
-                    setEditorAssignError("");
-                    setSelectedEditorId(v as Id<"users">);
-                  }}
-                  disabled={isAssigningEditor}
-                >
-                  <SelectTrigger className="bg-zinc-800/50 border-zinc-700 text-zinc-100">
-                    <SelectValue
-                      placeholder={
-                        availableEditors.length > 0
-                          ? "Select an editor to add…"
-                          : "No available editors"
-                      }
-                    />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {availableEditors.map((editor) => (
-                      <SelectItem key={editor._id} value={editor._id}>
-                        {editor.name} • {editor.projectCount} projects
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-
-                <Button
-                  size="sm"
-                  onClick={async () => {
-                    if (!selectedEditorId) return;
-                    setIsAssigningEditor(true);
-                    setEditorAssignError("");
-                    try {
-                      await assignEditorToProject({
-                        projectId: project._id,
-                        editorId: selectedEditorId,
-                      });
-                      setSelectedEditorId(null);
-                    } catch (e) {
-                      setEditorAssignError(
-                        e instanceof Error ? e.message : "Failed to add editor"
-                      );
-                    } finally {
-                      setIsAssigningEditor(false);
-                    }
-                  }}
-                  disabled={
-                    isAssigningEditor ||
-                    !selectedEditorId ||
-                    availableEditors.length === 0
-                  }
-                  className="bg-rose-600 hover:bg-rose-700"
-                >
-                  {isAssigningEditor ? (
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                  ) : (
-                    "Add"
-                  )}
-                </Button>
-              </div>
-
-              {editorAssignError && (
-                <p className="text-xs text-red-400">{editorAssignError}</p>
-              )}
-              <p className="text-xs text-zinc-500">
-                Shows each editor’s current active project count.
-              </p>
-            </div>
+          </span>
+          {(project.billableMinutes ?? project.skuCode) && (
+            <span className="text-zinc-500">
+              Billable <span className="text-zinc-200 font-medium">{project.billableMinutes?.toFixed(1) ?? "—"} min</span>
+              {project.skuCode && <span className="text-zinc-500 ml-0.5">({project.skuCode})</span>}
+            </span>
           )}
         </div>
+        {isEditingDueDate && canManageThisProject && (
+          <div className="mt-2 flex items-center gap-2">
+            <Input
+              type="date"
+              value={dueDate}
+              onChange={(e) => setDueDate(e.target.value)}
+              className="h-8 text-xs bg-zinc-800 border-zinc-600 text-zinc-100 w-40"
+            />
+            <Button size="sm" onClick={async () => { setIsLoading(true); try { await updateProject({ projectId: project._id, dueDate: dueDate ? new Date(dueDate).getTime() : undefined }); setIsEditingDueDate(false); } finally { setIsLoading(false); } }} disabled={isLoading} className="h-8 px-2 bg-emerald-600 hover:bg-emerald-700"><Check className="w-3 h-3" /></Button>
+            <Button size="sm" variant="ghost" onClick={() => { setDueDate(project.dueDate ? new Date(project.dueDate).toISOString().split("T")[0] : ""); setIsEditingDueDate(false); }} className="h-8 px-2"><X className="w-3 h-3" /></Button>
+          </div>
+        )}
+        {/* Earnings Preview & Warnings (for editors) */}
+        {isEditor && projectedEarnings && (
+          <div className="mt-6 space-y-3">
+            {/* Projected Earnings Card */}
+            <Card className="p-4 bg-gradient-to-r from-emerald-500/10 to-blue-500/10 border-emerald-500/20">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-xs text-emerald-400/80 mb-1">Projected Earnings</p>
+                  <p className="text-2xl font-bold text-emerald-400">
+                    ₹{projectedEarnings.finalPayout.toLocaleString()}
+                  </p>
+                  <p className="text-xs text-zinc-400 mt-1">
+                    Base: ₹{projectedEarnings.basePayout.toLocaleString()} • 
+                    QC: {projectedEarnings.qcAverage.toFixed(1)} • 
+                    Late: {Math.round(projectedEarnings.lateMinutes)}m
+                  </p>
+                </div>
+                <TrendingUp className="w-8 h-8 text-emerald-400/50" />
+              </div>
+            </Card>
+
+            {/* Warning Banners */}
+            {project.deadlineAt && (
+              (() => {
+                const deadline = project.deadlineAt;
+                const now = Date.now();
+                const hoursUntilDeadline = (deadline - now) / (1000 * 60 * 60);
+                const isLate = now > deadline;
+                const lateHours = isLate ? (now - deadline) / (1000 * 60 * 60) : 0;
+
+                if (isLate && lateHours > 0) {
+                  return (
+                    <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-lg flex items-center gap-3">
+                      <AlertTriangle className="w-5 h-5 text-red-400 flex-shrink-0" />
+                      <div className="flex-1">
+                        <p className="text-sm font-medium text-red-400">
+                          You are {Math.round(lateHours)} hours late
+                        </p>
+                        <p className="text-xs text-red-400/70 mt-0.5">
+                          Payout reduced by {Math.round((1 - projectedEarnings.reliabilityFactor) * 100)}% due to late delivery
+                        </p>
+                      </div>
+                    </div>
+                  );
+                } else if (hoursUntilDeadline > 0 && hoursUntilDeadline <= 24) {
+                  return (
+                    <div className="p-3 bg-yellow-500/10 border border-yellow-500/20 rounded-lg flex items-center gap-3">
+                      <Clock className="w-5 h-5 text-yellow-400 flex-shrink-0" />
+                      <div className="flex-1">
+                        <p className="text-sm font-medium text-yellow-400">
+                          Deadline in {Math.round(hoursUntilDeadline)} hours
+                        </p>
+                        <p className="text-xs text-yellow-400/70 mt-0.5">
+                          Deliver on time to avoid penalties
+                        </p>
+                      </div>
+                    </div>
+                  );
+                }
+                return null;
+              })()
+            )}
+
+            {projectedEarnings.qcAverage < 4.0 && (
+              <div className="p-3 bg-yellow-500/10 border border-yellow-500/20 rounded-lg flex items-center gap-3">
+                <AlertTriangle className="w-5 h-5 text-yellow-400 flex-shrink-0" />
+                <div className="flex-1">
+                  <p className="text-sm font-medium text-yellow-400">
+                    Quality score below threshold
+                  </p>
+                  <p className="text-xs text-yellow-400/70 mt-0.5">
+                    Current QC: {projectedEarnings.qcAverage.toFixed(1)}/5.0 • 
+                    Payout reduced by {Math.round((1 - projectedEarnings.qualityFactor) * 100)}%
+                  </p>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+      </div>
+
+      {/* Invitation panel: invite more editors */}
+      <div>
+        <ProjectInvitationPanel 
+          projectId={project._id} 
+          canManage={canManageThisProject} 
+        />
       </div>
     </Card>
   );

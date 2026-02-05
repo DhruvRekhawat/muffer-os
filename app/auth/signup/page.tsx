@@ -1,23 +1,39 @@
 "use client";
 
-import { useState } from "react";
+import { Suspense, useState, useEffect } from "react";
 import { useSignIn } from "@/lib/auth";
+import { useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card } from "@/components/ui/card";
-import { Loader2, Mail, Lock, User, Sparkles, CheckCircle } from "lucide-react";
+import { Loader2, Mail, Lock, User, CheckCircle } from "lucide-react";
 import Link from "next/link";
+import Image from "next/image";
 
-export default function SignupPage() {
+function roleFromParam(param: string | null): "EDITOR" | "PM" {
+  if (!param) return "EDITOR";
+  const v = param.toLowerCase().trim();
+  if (v === "pm" || v === "project-manager" || v === "projectmanager") return "PM";
+  if (v === "editor" || v === "video-editor" || v === "videoeditor") return "EDITOR";
+  return "EDITOR";
+}
+
+function SignupContent() {
+  const searchParams = useSearchParams();
+  const roleParam = searchParams.get("role");
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [role, setRole] = useState<"EDITOR" | "PM">("EDITOR");
+  const [role, setRole] = useState<"EDITOR" | "PM">(() => roleFromParam(roleParam));
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState(false);
-  
+
+  useEffect(() => {
+    setRole(roleFromParam(roleParam));
+  }, [roleParam]);
+
   const signIn = useSignIn();
   
   const handleSignup = async (e: React.FormEvent) => {
@@ -59,11 +75,15 @@ export default function SignupPage() {
   return (
     <Card className="p-8 bg-zinc-900/80 backdrop-blur-xl border-zinc-800/50 shadow-2xl">
       <div className="text-center mb-8">
-        <div className="flex items-center justify-center gap-2 mb-4">
-          <div className="w-10 h-10 rounded-xl bg-linear-to-br from-rose-500 to-orange-500 flex items-center justify-center">
-            <Sparkles className="w-5 h-5 text-white" />
-          </div>
-          <span className="text-2xl font-bold text-zinc-100 tracking-tight">Muffer</span>
+        <div className="flex items-center justify-center mb-4">
+          <Image
+            src="/logo.svg"
+            alt="Muffer"
+            width={140}
+            height={31}
+            className="h-8 w-auto"
+            priority
+          />
         </div>
         <p className="text-zinc-400">Create your account</p>
       </div>
@@ -125,33 +145,35 @@ export default function SignupPage() {
             </div>
           </div>
           
-          <div className="space-y-2">
-            <Label className="text-zinc-300">I am a...</Label>
-            <div className="flex gap-2">
-              <button
-                type="button"
-                onClick={() => setRole("EDITOR")}
-                className={`flex-1 py-3 px-4 rounded-lg text-sm font-medium transition-all border ${
-                  role === "EDITOR" 
-                    ? "bg-rose-500/10 border-rose-500/50 text-rose-400" 
-                    : "bg-zinc-800/50 border-zinc-700 text-zinc-400 hover:border-zinc-600"
-                }`}
-              >
-                Video Editor
-              </button>
-              <button
-                type="button"
-                onClick={() => setRole("PM")}
-                className={`flex-1 py-3 px-4 rounded-lg text-sm font-medium transition-all border ${
-                  role === "PM"
-                    ? "bg-blue-500/10 border-blue-500/50 text-blue-400"
-                    : "bg-zinc-800/50 border-zinc-700 text-zinc-400 hover:border-zinc-600"
-                }`}
-              >
-                Project Manager
-              </button>
+          {!roleParam?.trim() && (
+            <div className="space-y-2">
+              <Label className="text-zinc-300">I am a...</Label>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setRole("EDITOR")}
+                  className={`flex-1 py-3 px-4 rounded-lg text-sm font-medium transition-all border ${
+                    role === "EDITOR" 
+                      ? "bg-rose-500/10 border-rose-500/50 text-rose-400" 
+                      : "bg-zinc-800/50 border-zinc-700 text-zinc-400 hover:border-zinc-600"
+                  }`}
+                >
+                  Video Editor
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setRole("PM")}
+                  className={`flex-1 py-3 px-4 rounded-lg text-sm font-medium transition-all border ${
+                    role === "PM"
+                      ? "bg-blue-500/10 border-blue-500/50 text-blue-400"
+                      : "bg-zinc-800/50 border-zinc-700 text-zinc-400 hover:border-zinc-600"
+                  }`}
+                >
+                  Project Manager
+                </button>
+              </div>
             </div>
-          </div>
+          )}
           
           <Button 
             type="submit" 
@@ -177,3 +199,16 @@ export default function SignupPage() {
   );
 }
 
+export default function SignupPage() {
+  return (
+    <Suspense fallback={
+      <Card className="p-8 bg-zinc-900/80 backdrop-blur-xl border-zinc-800/50 shadow-2xl">
+        <div className="flex items-center justify-center py-12">
+          <Loader2 className="w-8 h-8 animate-spin text-zinc-500" />
+        </div>
+      </Card>
+    }>
+      <SignupContent />
+    </Suspense>
+  );
+}

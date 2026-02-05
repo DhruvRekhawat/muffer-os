@@ -33,7 +33,6 @@ interface Milestone {
   description?: string;
   order: number;
   status: string;
-  payoutAmount: number;
   assignedEditorId?: Id<"users">;
   assignedEditorName?: string;
   dueDate?: number;
@@ -70,13 +69,11 @@ export function MilestonesList({ project, milestones, currentUser }: MilestonesL
   const [editTitle, setEditTitle] = useState("");
   const [editDescription, setEditDescription] = useState("");
   const [editDueDate, setEditDueDate] = useState("");
-  const [editPayoutAmount, setEditPayoutAmount] = useState("");
   
   // Creating state
   const [newTitle, setNewTitle] = useState("");
   const [newDescription, setNewDescription] = useState("");
   const [newDueDate, setNewDueDate] = useState("");
-  const [newPayoutAmount, setNewPayoutAmount] = useState("");
   const [newAssignedEditorId, setNewAssignedEditorId] = useState<string>("");
   
   const editors = useQuery(api.users.getAvailableEditors);
@@ -95,10 +92,7 @@ export function MilestonesList({ project, milestones, currentUser }: MilestonesL
   
   const canManage = currentUser?.role === "SUPER_ADMIN" || currentUser?.role === "PM";
   const isEditor = currentUser?.role === "EDITOR";
-  const isProjectCompleted = project.status === "COMPLETED";
-  // Payout amounts are locked until project is completed (can only edit after completion)
-  const canEditPayoutAmount = isProjectCompleted;
-  
+
   const getStatusIcon = (status: string) => {
     switch (status) {
       case "LOCKED":
@@ -189,7 +183,6 @@ export function MilestonesList({ project, milestones, currentUser }: MilestonesL
     setEditTitle(milestone.title);
     setEditDescription(milestone.description || "");
     setEditDueDate(milestone.dueDate ? new Date(milestone.dueDate).toISOString().split('T')[0] : "");
-    setEditPayoutAmount(milestone.payoutAmount.toString());
   };
   
   const cancelEditing = () => {
@@ -197,7 +190,6 @@ export function MilestonesList({ project, milestones, currentUser }: MilestonesL
     setEditTitle("");
     setEditDescription("");
     setEditDueDate("");
-    setEditPayoutAmount("");
   };
   
   const saveEditing = async (milestoneId: Id<"milestones">) => {
@@ -208,7 +200,6 @@ export function MilestonesList({ project, milestones, currentUser }: MilestonesL
         title: editTitle,
         description: editDescription || undefined,
         dueDate: editDueDate ? new Date(editDueDate).getTime() : undefined,
-        payoutAmount: canEditPayoutAmount ? parseFloat(editPayoutAmount) : undefined,
       });
       setEditingId(null);
     } catch (error) {
@@ -235,7 +226,6 @@ export function MilestonesList({ project, milestones, currentUser }: MilestonesL
     setNewTitle("");
     setNewDescription("");
     setNewDueDate("");
-    setNewPayoutAmount("");
     setNewAssignedEditorId("");
     setExpandedId(null);
   };
@@ -245,13 +235,12 @@ export function MilestonesList({ project, milestones, currentUser }: MilestonesL
     setNewTitle("");
     setNewDescription("");
     setNewDueDate("");
-    setNewPayoutAmount("");
     setNewAssignedEditorId("");
   };
   
   const saveNewMilestone = async () => {
-    if (!newTitle.trim() || !newPayoutAmount) {
-      alert("Please fill in title and payout amount");
+    if (!newTitle.trim()) {
+      alert("Please fill in title");
       return;
     }
     
@@ -262,7 +251,6 @@ export function MilestonesList({ project, milestones, currentUser }: MilestonesL
         title: newTitle.trim(),
         description: newDescription.trim() || undefined,
         dueDate: newDueDate ? new Date(newDueDate).getTime() : undefined,
-        payoutAmount: parseFloat(newPayoutAmount),
         assignedEditorId: newAssignedEditorId ? (newAssignedEditorId as Id<"users">) : undefined,
       });
       cancelCreating();
@@ -313,29 +301,17 @@ export function MilestonesList({ project, milestones, currentUser }: MilestonesL
                 className="bg-zinc-800 border-zinc-700 text-zinc-100 min-h-[80px]"
               />
             </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-2">
-                <label className="text-sm text-zinc-400 flex items-center gap-1">
-                  <Calendar className="w-3 h-3" />
-                  Due Date
-                </label>
-                <Input
-                  type="date"
-                  value={newDueDate}
-                  onChange={(e) => setNewDueDate(e.target.value)}
-                  className="bg-zinc-800 border-zinc-700 text-zinc-100"
-                />
-              </div>
-              <div className="space-y-2">
-                <label className="text-sm text-zinc-400">Payout Amount (₹) *</label>
-                <Input
-                  type="number"
-                  value={newPayoutAmount}
-                  onChange={(e) => setNewPayoutAmount(e.target.value)}
-                  placeholder="0"
-                  className="bg-zinc-800 border-zinc-700 text-zinc-100"
-                />
-              </div>
+            <div className="space-y-2">
+              <label className="text-sm text-zinc-400 flex items-center gap-1">
+                <Calendar className="w-3 h-3" />
+                Due Date (optional)
+              </label>
+              <Input
+                type="date"
+                value={newDueDate}
+                onChange={(e) => setNewDueDate(e.target.value)}
+                className="bg-zinc-800 border-zinc-700 text-zinc-100"
+              />
             </div>
             {editors && editors.length > 0 && (
               <div className="space-y-2">
@@ -366,7 +342,7 @@ export function MilestonesList({ project, milestones, currentUser }: MilestonesL
             <div className="flex gap-2">
               <Button
                 onClick={saveNewMilestone}
-                disabled={isSubmitting || !newTitle.trim() || !newPayoutAmount}
+                disabled={isSubmitting || !newTitle.trim()}
                 className="flex-1 bg-gradient-to-r from-rose-500 to-orange-500 hover:from-rose-600 hover:to-orange-600 text-white"
               >
                 {isSubmitting ? (
@@ -438,9 +414,6 @@ export function MilestonesList({ project, milestones, currentUser }: MilestonesL
                 </div>
                 
                 <div className="text-right">
-                  <p className="font-semibold text-emerald-400">
-                    ₹{milestone.payoutAmount.toLocaleString()}
-                  </p>
                   {milestone.status !== "LOCKED" && (
                     isExpanded ? <ChevronUp className="w-4 h-4 text-zinc-500 mt-1" /> : <ChevronDown className="w-4 h-4 text-zinc-500 mt-1" />
                   )}
@@ -470,30 +443,17 @@ export function MilestonesList({ project, milestones, currentUser }: MilestonesL
                           className="bg-zinc-800 border-zinc-700 text-zinc-100 min-h-[80px]"
                         />
                       </div>
-                      <div className="grid grid-cols-2 gap-3">
-                        <div className="space-y-2">
-                          <label className="text-sm text-zinc-400 flex items-center gap-1">
-                            <Calendar className="w-3 h-3" />
-                            Due Date
-                          </label>
-                          <Input
-                            type="date"
-                            value={editDueDate}
-                            onChange={(e) => setEditDueDate(e.target.value)}
-                            className="bg-zinc-800 border-zinc-700 text-zinc-100"
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <label className="text-sm text-zinc-400">Payout Amount (₹)</label>
-                          <Input
-                            type="number"
-                            value={editPayoutAmount}
-                            onChange={(e) => setEditPayoutAmount(e.target.value)}
-                            disabled={!canEditPayoutAmount}
-                            className="bg-zinc-800 border-zinc-700 text-zinc-100 disabled:opacity-50 disabled:cursor-not-allowed"
-                            title={!canEditPayoutAmount ? "Payout amounts are locked until project is marked as done" : "Payout amounts can be edited after project completion"}
-                          />
-                        </div>
+                      <div className="space-y-2">
+                        <label className="text-sm text-zinc-400 flex items-center gap-1">
+                          <Calendar className="w-3 h-3" />
+                          Due Date (optional)
+                        </label>
+                        <Input
+                          type="date"
+                          value={editDueDate}
+                          onChange={(e) => setEditDueDate(e.target.value)}
+                          className="bg-zinc-800 border-zinc-700 text-zinc-100"
+                        />
                       </div>
                       <div className="flex gap-2">
                         <Button

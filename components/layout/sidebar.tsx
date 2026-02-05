@@ -2,6 +2,7 @@
 
 import { useState, useEffect, createContext, useContext } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { usePathname } from "next/navigation";
 import { 
   LayoutDashboard, 
@@ -188,14 +189,18 @@ export function Sidebar({ user }: SidebarProps) {
               "flex items-center gap-3 transition-all",
               isCollapsed && "justify-center"
             )}>
-              <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0">
-                <span className="text-3xl font-bold" style={{ color: '#F70606' }}>m</span>
-              </div>
+              <Image
+                src="/logo.svg"
+                alt="Muffer"
+                width={100}
+                height={22}
+                className={cn("shrink-0", isCollapsed ? "h-5 w-auto max-w-12 object-left object-contain" : "h-6 w-auto")}
+              />
               {!isCollapsed && (
-                <div className="overflow-hidden">
-                  <span className="text-xl font-bold text-zinc-100 tracking-tight">Muffer</span>
+                <div className="overflow-hidden flex items-center gap-2">
+                  <span className="text-xl font-bold text-zinc-100 tracking-tight">muffer</span>
                   <span className={cn(
-                    "ml-2 text-xs px-2 py-0.5 rounded-full border",
+                    "text-xs px-2 py-0.5 rounded-full border",
                     roleBadge.color
                   )}>
                     {roleBadge.label}

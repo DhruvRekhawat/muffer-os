@@ -9,7 +9,6 @@ import {
   FolderKanban, 
   AlertTriangle,
   Clock,
-  Users,
   ArrowRight,
   Plus
 } from "lucide-react";
@@ -22,6 +21,12 @@ interface PMDashboardProps {
 }
 
 export function PMDashboard({ user }: PMDashboardProps) {
+  const projectStats = useQuery(api.projects.getProjectStats, {});
+  const projectsAtRisk = useQuery(api.projects.getProjectsAtRisk, {});
+  const overdueMilestones = useQuery(api.milestones.getOverdueMilestones, {});
+  const pendingSubmissions = useQuery(api.milestones.getPendingSubmissions, {});
+  const editors = useQuery(api.users.getAvailableEditors, {});
+
   if (user.status === "INVITED") {
     return (
       <div className="space-y-6 animate-fade-in">
@@ -55,12 +60,6 @@ export function PMDashboard({ user }: PMDashboardProps) {
     );
   }
 
-  const projectStats = useQuery(api.projects.getProjectStats, {});
-  const projectsAtRisk = useQuery(api.projects.getProjectsAtRisk, {});
-  const overdueMilestones = useQuery(api.milestones.getOverdueMilestones, {});
-  const pendingSubmissions = useQuery(api.milestones.getPendingSubmissions, {});
-  const editors = useQuery(api.users.getAvailableEditors, {});
-  
   return (
     <div className="space-y-6 animate-fade-in">
       {/* Welcome */}

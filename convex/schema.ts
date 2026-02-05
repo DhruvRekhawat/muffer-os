@@ -193,6 +193,15 @@ export default defineSchema({
     unlockedBalance: v.optional(v.number()),
     lifetimeEarnings: v.optional(v.number()),
     
+    // Editor tier and rate
+    tier: v.optional(v.union(
+      v.literal("JUNIOR"),
+      v.literal("STANDARD"),
+      v.literal("SENIOR"),
+      v.literal("ELITE")
+    )),
+    tierRatePerMin: v.optional(v.number()), // Snapshot of rate at assignment
+    
     createdAt: v.optional(v.number()),
     lastActive: v.optional(v.number()),
   })
@@ -246,6 +255,15 @@ export default defineSchema({
     // Budget
     budget: v.optional(v.number()),
 
+    // SKU and payout calculation fields
+    skuCode: v.optional(v.string()),
+    billableMinutes: v.optional(v.number()),
+    difficultyFactor: v.optional(v.number()),
+    editorCapAmount: v.optional(v.number()),
+    incentivePoolAmount: v.optional(v.number()),
+    incentivePoolRemaining: v.optional(v.number()),
+    deadlineAt: v.optional(v.number()),
+
     // Payouts
     // When set, editor earnings for this project have been unlocked to wallet balances.
     payoutsUnlockedAt: v.optional(v.number()),
@@ -268,7 +286,7 @@ export default defineSchema({
     description: v.optional(v.string()),
     order: v.number(), // for sequencing
     dueDate: v.optional(v.number()),
-    payoutAmount: v.number(),
+    payoutAmount: v.optional(v.number()), // TEMPORARY: Remove after running migration
     bonusEligible: v.optional(v.boolean()),
     
     // Assignment
@@ -279,6 +297,13 @@ export default defineSchema({
     status: milestoneStatus,
     submittedAt: v.optional(v.number()),
     approvedAt: v.optional(v.number()),
+    
+    // QC tracking
+    qcGuidelinesScore: v.optional(v.number()), // 1-5
+    qcAvQualityScore: v.optional(v.number()),  // 1-5
+    qcSelfRelianceScore: v.optional(v.number()), // 1-5
+    qcAverage: v.optional(v.number()),
+    lateMinutes: v.optional(v.number()),
     
     createdAt: v.number(),
   })
@@ -351,10 +376,19 @@ export default defineSchema({
     userId: v.id("users"),
     status: editorHiringStatus,
 
+    // Principles modals (stacked, once-only)
+    principlesCompletedAt: v.optional(v.number()),
+
+    // Test task selection (UGC vs Cinematic)
+    testTaskType: v.optional(v.union(v.literal("UGC"), v.literal("CINEMATIC"))),
+    testDeadlineHours: v.optional(v.union(v.literal(24), v.literal(48))),
+
     // NDA acceptance
     ndaDocumentName: v.string(), // e.g. "Partner NDA-1.pdf"
     ndaAcceptedName: v.optional(v.string()),
     ndaAcceptedAt: v.optional(v.number()),
+    ndaCheckboxesCompletedAt: v.optional(v.number()),
+    signedAgreementPdfUrl: v.optional(v.string()),
 
     // Test project linkage
     testProjectId: v.optional(v.id("projects")),
@@ -480,5 +514,289 @@ export default defineSchema({
   })
     .index("by_key", ["key"])
     .index("by_updated", ["updatedAt"]),
+
+  // Config tables for payout engine
+  tierRates: defineTable({
+    tier: v.union(
+      v.literal("JUNIOR"),
+      v.literal("STANDARD"),
+      v.literal("SENIOR"),
+      v.literal("ELITE")
+    ),
+    ratePerMin: v.number(),
+    rushEligible: v.optional(v.boolean()),
+    isActive: v.boolean(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_tier", ["tier"])
+    .index("by_active", ["isActive"]),
+
+  skuCatalog: defineTable({
+    skuCode: v.string(),
+    name: v.string(),
+    serviceType: serviceType,
+    billableMinutesBase: v.number(),
+    difficultyFactorDefault: v.number(),
+    editorBudgetPct: v.number(),
+    incentivePoolPct: v.number(),
+    isActive: v.boolean(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_code", ["skuCode"])
+    .index("by_active", ["isActive"]),
+
+  reliabilityBands: defineTable({
+    minLateMinutes: v.number(),
+    factor: v.number(),
+    createdAt: v.number(),
+  })
+    .index("by_minutes", ["minLateMinutes"]),
+
+  qualityBands: defineTable({
+    minQcAvg: v.number(),
+    factor: v.number(),
+    createdAt: v.number(),
+  })
+    .index("by_qc", ["minQcAvg"]),
+
+  // Project invitations
+  projectInvitations: defineTable({
+    projectId: v.id("projects"),
+    projectName: v.string(),
+    editorId: v.id("users"),
+    editorName: v.string(),
+    invitedBy: v.id("users"),
+    
+    // Payout preview (calculated at invite time)
+    payoutPreview: v.object({
+      billableMinutes: v.number(),
+      tierRate: v.number(),
+      base: v.number(),
+      minPayout: v.number(),
+      maxPayout: v.number(),
+      editorCap: v.number(),
+      eligibleBonuses: v.array(v.object({
+        code: v.string(),
+        amount: v.number(),
+        condition: v.string(),
+      })),
+    }),
+    
+    status: v.union(
+      v.literal("PENDING"),
+      v.literal("ACCEPTED"),
+      v.literal("REJECTED"),
+      v.literal("EXPIRED")
+    ),
+    expiresAt: v.optional(v.number()),
+    respondedAt: v.optional(v.number()),
+    createdAt: v.number(),
+  })
+    .index("by_project", ["projectId"])
+    .index("by_editor", ["editorId"])
+    .index("by_status", ["status"])
+    .index("by_editor_status", ["editorId", "status"]),
+
+  // Editor payout records (final calculation breakdown)
+  editorPayoutRecords: defineTable({
+    projectId: v.id("projects"),
+    editorId: v.id("users"),
+    
+    // Calculation inputs
+    billableMinutes: v.number(),
+    tierRate: v.number(),
+    reliabilityFactor: v.number(),
+    qualityFactor: v.number(),
+    qcAverage: v.number(),
+    lateMinutes: v.number(),
+    
+    // Breakdown
+    basePayout: v.number(),
+    afterFactors: v.number(),
+    cappedPayout: v.number(),
+    bonusAmount: v.number(),
+    finalPayout: v.number(),
+    
+    // Bonuses applied
+    bonusesApplied: v.array(v.object({
+      code: v.string(),
+      amount: v.number(),
+    })),
+    
+    status: v.union(v.literal("PENDING"), v.literal("UNLOCKED")),
+    unlockedAt: v.optional(v.number()),
+    createdAt: v.number(),
+  })
+    .index("by_project", ["projectId"])
+    .index("by_editor", ["editorId"])
+    .index("by_status", ["status"]),
+
+  // Notification types enum
+  notifications: defineTable({
+    userId: v.id("users"),
+    type: v.union(
+      // Editor notifications
+      v.literal("editor.invitation.received"),
+      v.literal("editor.invitation.expired"),
+      v.literal("editor.milestone.assigned"),
+      v.literal("editor.submission.approved"),
+      v.literal("editor.submission.rejected"),
+      v.literal("editor.payout.unlocked"),
+      v.literal("editor.payout.processed"),
+      v.literal("editor.mission.completed"),
+      v.literal("editor.deadline.warning"),
+      v.literal("editor.hiring.decision"),
+      // PM notifications
+      v.literal("pm.project.assigned"),
+      v.literal("pm.invitation.response"),
+      v.literal("pm.submission.ready"),
+      v.literal("pm.project.at_risk"),
+      v.literal("pm.project.delayed"),
+      v.literal("pm.deadline.warning"),
+      v.literal("pm.application.new"),
+      v.literal("pm.project.completed"),
+      // SA notifications
+      v.literal("sa.order.placed"),
+      v.literal("sa.application.new"),
+      v.literal("sa.payout.large"),
+      v.literal("sa.project.completed"),
+      v.literal("sa.project.danger"),
+      v.literal("sa.hiring.decision"),
+      v.literal("sa.daily.summary")
+    ),
+    title: v.string(),
+    message: v.string(),
+    data: v.optional(v.object({
+      projectId: v.optional(v.id("projects")),
+      milestoneId: v.optional(v.id("milestones")),
+      orderId: v.optional(v.id("orders")),
+      invitationId: v.optional(v.id("projectInvitations")),
+      amount: v.optional(v.number()),
+      link: v.optional(v.string()),
+    })),
+    isRead: v.boolean(),
+    createdAt: v.number(),
+  })
+    .index("by_user", ["userId"])
+    .index("by_user_unread", ["userId", "isRead"])
+    .index("by_type", ["type"]),
+
+  // WhatsApp notification log (for tracking)
+  whatsappNotificationLog: defineTable({
+    userId: v.id("users"),
+    phone: v.string(),
+    type: v.union(
+      v.literal("editor.invitation.received"),
+      v.literal("editor.invitation.expired"),
+      v.literal("editor.milestone.assigned"),
+      v.literal("editor.submission.approved"),
+      v.literal("editor.submission.rejected"),
+      v.literal("editor.payout.unlocked"),
+      v.literal("editor.payout.processed"),
+      v.literal("editor.mission.completed"),
+      v.literal("editor.deadline.warning"),
+      v.literal("editor.hiring.decision"),
+      v.literal("pm.project.assigned"),
+      v.literal("pm.invitation.response"),
+      v.literal("pm.submission.ready"),
+      v.literal("pm.project.at_risk"),
+      v.literal("pm.project.delayed"),
+      v.literal("pm.deadline.warning"),
+      v.literal("pm.application.new"),
+      v.literal("pm.project.completed"),
+      v.literal("sa.order.placed"),
+      v.literal("sa.application.new"),
+      v.literal("sa.payout.large"),
+      v.literal("sa.project.completed"),
+      v.literal("sa.project.danger"),
+      v.literal("sa.hiring.decision"),
+      v.literal("sa.daily.summary")
+    ),
+    templateName: v.string(),
+    status: v.union(v.literal("SENT"), v.literal("FAILED")),
+    errorMessage: v.optional(v.string()),
+    createdAt: v.number(),
+  })
+    .index("by_user", ["userId"])
+    .index("by_status", ["status"]),
+
+  // Notification preferences (per user)
+  notificationPreferences: defineTable({
+    userId: v.id("users"),
+    inAppEnabled: v.boolean(),
+    disabledTypes: v.optional(v.array(v.union(
+      v.literal("editor.invitation.received"),
+      v.literal("editor.invitation.expired"),
+      v.literal("editor.milestone.assigned"),
+      v.literal("editor.submission.approved"),
+      v.literal("editor.submission.rejected"),
+      v.literal("editor.payout.unlocked"),
+      v.literal("editor.payout.processed"),
+      v.literal("editor.mission.completed"),
+      v.literal("editor.deadline.warning"),
+      v.literal("editor.hiring.decision"),
+      v.literal("pm.project.assigned"),
+      v.literal("pm.invitation.response"),
+      v.literal("pm.submission.ready"),
+      v.literal("pm.project.at_risk"),
+      v.literal("pm.project.delayed"),
+      v.literal("pm.deadline.warning"),
+      v.literal("pm.application.new"),
+      v.literal("pm.project.completed"),
+      v.literal("sa.order.placed"),
+      v.literal("sa.application.new"),
+      v.literal("sa.payout.large"),
+      v.literal("sa.project.completed"),
+      v.literal("sa.project.danger"),
+      v.literal("sa.hiring.decision"),
+      v.literal("sa.daily.summary")
+    ))),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_user", ["userId"]),
+
+  // WhatsApp template config (admin-managed)
+  whatsappTemplates: defineTable({
+    type: v.union(
+      v.literal("editor.invitation.received"),
+      v.literal("editor.invitation.expired"),
+      v.literal("editor.milestone.assigned"),
+      v.literal("editor.submission.approved"),
+      v.literal("editor.submission.rejected"),
+      v.literal("editor.payout.unlocked"),
+      v.literal("editor.payout.processed"),
+      v.literal("editor.mission.completed"),
+      v.literal("editor.deadline.warning"),
+      v.literal("editor.hiring.decision"),
+      v.literal("pm.project.assigned"),
+      v.literal("pm.invitation.response"),
+      v.literal("pm.submission.ready"),
+      v.literal("pm.project.at_risk"),
+      v.literal("pm.project.delayed"),
+      v.literal("pm.deadline.warning"),
+      v.literal("pm.application.new"),
+      v.literal("pm.project.completed"),
+      v.literal("sa.order.placed"),
+      v.literal("sa.application.new"),
+      v.literal("sa.payout.large"),
+      v.literal("sa.project.completed"),
+      v.literal("sa.project.danger"),
+      v.literal("sa.hiring.decision"),
+      v.literal("sa.daily.summary")
+    ),
+    templateName: v.string(),
+    templateLanguage: v.string(),
+    parameterMapping: v.array(v.object({
+      paramIndex: v.number(),
+      dataField: v.string(),
+    })),
+    isActive: v.boolean(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_type", ["type"]),
 });
 

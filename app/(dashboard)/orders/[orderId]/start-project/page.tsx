@@ -1,6 +1,6 @@
 "use client";
 
-import { use, useState, useEffect } from "react";
+import { use, useState } from "react";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { useRouter } from "next/navigation";
@@ -10,22 +10,16 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Card } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   ArrowLeft,
   ArrowRight,
   Loader2,
   CheckCircle2,
-  Circle,
-  DollarSign,
-  Calendar,
   LayoutGrid,
   List,
   Plus,
   X,
-  Users,
-  FileText,
   Sparkles,
   Search,
 } from "lucide-react";
@@ -77,45 +71,34 @@ export default function StartProjectPage({ params }: StartProjectPageProps) {
   const editorsWithCount = useQuery(api.users.getEditorsWithProjectCount);
   const createProject = useMutation(api.projects.createProjectFromOrderAdmin);
 
-  // Initialize budget as 70% of order value
-  useEffect(() => {
-    if (order && !budget) {
-      const defaultBudget = Math.floor(order.totalPrice * 0.7);
-      setBudget(defaultBudget.toString());
-    }
-  }, [order, budget]);
+  const defaultBudgetStr = order ? String(Math.floor(order.totalPrice * 0.7)) : "";
+  const effectiveBudget = budget || defaultBudgetStr;
 
-  // Handle template selection (autofill when template selected in create mode)
-  useEffect(() => {
-    if (selectedTemplateId && templates && milestoneMode === "create") {
-      const template = templates.find(t => t._id === selectedTemplateId);
-      if (template) {
-        setMilestones(template.milestones.map((m, idx) => ({
-          ...m,
-          order: idx + 1,
-        })));
-      }
-    }
-  }, [selectedTemplateId, templates, milestoneMode]);
-
-  // Distribute budget across milestones
-  const distributeBudget = () => {
-    if (milestones.length === 0 || !budget) return;
-    const totalBudget = parseFloat(budget);
-    const perMilestone = Math.floor(totalBudget / milestones.length);
-    const remainder = totalBudget - (perMilestone * milestones.length);
-
-    setMilestones(prev => prev.map((m, idx) => ({
+  function computeDistributedMilestones(ms: Milestone[], budgetStr: string): Milestone[] {
+    if (ms.length === 0 || !budgetStr) return ms;
+    const totalBudget = parseFloat(budgetStr);
+    if (Number.isNaN(totalBudget)) return ms;
+    const perMilestone = Math.floor(totalBudget / ms.length);
+    const remainder = totalBudget - perMilestone * ms.length;
+    return ms.map((m, idx) => ({
       ...m,
       payoutAmount: idx === 0 ? perMilestone + remainder : perMilestone,
-    })));
+    }));
+  }
+
+  const handleBudgetChange = (value: string) => {
+    setBudget(value);
+    setMilestones((prev) => computeDistributedMilestones(prev, value || defaultBudgetStr));
   };
 
-  useEffect(() => {
-    if (milestoneMode === "create" && milestones.length > 0 && budget) {
-      distributeBudget();
+  const handleTemplateChange = (templateId: string) => {
+    setSelectedTemplateId(templateId);
+    const template = templates?.find((t) => t._id === templateId);
+    if (template) {
+      const next = template.milestones.map((m, idx) => ({ ...m, order: idx + 1 }));
+      setMilestones(computeDistributedMilestones(next, effectiveBudget));
     }
-  }, [milestoneMode, milestones.length, budget]);
+  };
 
   if (!isSuperAdmin) {
     return (
@@ -147,7 +130,7 @@ export default function StartProjectPage({ params }: StartProjectPageProps) {
 
   const handleNext = () => {
     if (currentStep === 1) {
-      if (!budget || parseFloat(budget) <= 0) {
+      if (!effectiveBudget || parseFloat(effectiveBudget) <= 0) {
         setError("Budget must be greater than 0");
         return;
       }
@@ -175,7 +158,7 @@ export default function StartProjectPage({ params }: StartProjectPageProps) {
     try {
       const result = await createProject({
         orderId: order._id,
-        budget: parseFloat(budget),
+        budget: parseFloat(effectiveBudget),
         dueDate: deadline ? new Date(deadline).getTime() : undefined,
         pmId: pmId!,
         editorIds,
@@ -275,8 +258,8 @@ export default function StartProjectPage({ params }: StartProjectPageProps) {
                 <div className="flex items-center gap-3">
                   <Input
                     type="number"
-                    value={budget}
-                    onChange={(e) => setBudget(e.target.value)}
+                    value={effectiveBudget}
+                    onChange={(e) => handleBudgetChange(e.target.value)}
                     className="bg-zinc-800/50 border-zinc-700 text-zinc-100"
                     required
                     min="0"
@@ -336,7 +319,7 @@ export default function StartProjectPage({ params }: StartProjectPageProps) {
                 <div className="space-y-4 mb-4">
                   <div className="space-y-2">
                     <Label className="text-sm text-zinc-400">Load from Template (Optional)</Label>
-                    <Select value={selectedTemplateId} onValueChange={setSelectedTemplateId}>
+                    <Select value={selectedTemplateId} onValueChange={handleTemplateChange}>
                       <SelectTrigger className="bg-zinc-800/50 border-zinc-700 text-zinc-100">
                         <SelectValue placeholder="Select a template to autofill" />
                       </SelectTrigger>
