@@ -1,6 +1,7 @@
 import { v } from "convex/values";
-import { internalAction, internalMutation, internalQuery } from "./_generated/server";
+import { internalAction, internalMutation, internalQuery, mutation } from "./_generated/server";
 import { internal } from "./_generated/api";
+import { auth } from "./auth";
 const notificationType = v.union(
   v.literal("editor.invitation.received"),
   v.literal("editor.invitation.expired"),
@@ -158,6 +159,188 @@ export const logNotification = internalMutation({
 export const seedTemplates = internalMutation({
   args: {},
   handler: async (ctx) => {
+    const now = Date.now();
+    
+    const templates = [
+      // Editor templates
+      {
+        type: "editor.invitation.received" as const,
+        templateName: "muffer_project_invitation",
+        templateLanguage: "en",
+        parameterMapping: [
+          { paramIndex: 1, dataField: "editorName" },
+          { paramIndex: 2, dataField: "projectName" },
+          { paramIndex: 3, dataField: "minPayout" },
+          { paramIndex: 4, dataField: "maxPayout" },
+          { paramIndex: 5, dataField: "deadline" },
+        ],
+      },
+      {
+        type: "editor.submission.approved" as const,
+        templateName: "muffer_work_approved",
+        templateLanguage: "en",
+        parameterMapping: [
+          { paramIndex: 1, dataField: "editorName" },
+          { paramIndex: 2, dataField: "projectName" },
+          { paramIndex: 3, dataField: "qcScore" },
+          { paramIndex: 4, dataField: "amount" },
+        ],
+      },
+      {
+        type: "editor.submission.rejected" as const,
+        templateName: "muffer_work_rejected",
+        templateLanguage: "en",
+        parameterMapping: [
+          { paramIndex: 1, dataField: "editorName" },
+          { paramIndex: 2, dataField: "projectName" },
+          { paramIndex: 3, dataField: "feedback" },
+        ],
+      },
+      {
+        type: "editor.payout.processed" as const,
+        templateName: "muffer_payout_processed",
+        templateLanguage: "en",
+        parameterMapping: [
+          { paramIndex: 1, dataField: "editorName" },
+          { paramIndex: 2, dataField: "amount" },
+          { paramIndex: 3, dataField: "transactionId" },
+        ],
+      },
+      {
+        type: "editor.deadline.warning" as const,
+        templateName: "muffer_deadline_reminder",
+        templateLanguage: "en",
+        parameterMapping: [
+          { paramIndex: 1, dataField: "projectName" },
+          { paramIndex: 2, dataField: "timeRemaining" },
+        ],
+      },
+      {
+        type: "editor.mission.completed" as const,
+        templateName: "muffer_mission_completed",
+        templateLanguage: "en",
+        parameterMapping: [
+          { paramIndex: 1, dataField: "editorName" },
+          { paramIndex: 2, dataField: "missionName" },
+          { paramIndex: 3, dataField: "amount" },
+        ],
+      },
+      // PM templates
+      {
+        type: "pm.submission.ready" as const,
+        templateName: "muffer_new_submission",
+        templateLanguage: "en",
+        parameterMapping: [
+          { paramIndex: 1, dataField: "pmName" },
+          { paramIndex: 2, dataField: "editorName" },
+          { paramIndex: 3, dataField: "projectName" },
+        ],
+      },
+      {
+        type: "pm.project.at_risk" as const,
+        templateName: "muffer_project_alert",
+        templateLanguage: "en",
+        parameterMapping: [
+          { paramIndex: 1, dataField: "projectName" },
+          { paramIndex: 2, dataField: "status" },
+          { paramIndex: 3, dataField: "pendingCount" },
+        ],
+      },
+      {
+        type: "pm.project.delayed" as const,
+        templateName: "muffer_project_alert",
+        templateLanguage: "en",
+        parameterMapping: [
+          { paramIndex: 1, dataField: "projectName" },
+          { paramIndex: 2, dataField: "status" },
+          { paramIndex: 3, dataField: "pendingCount" },
+        ],
+      },
+      {
+        type: "pm.invitation.response" as const,
+        templateName: "muffer_editor_response",
+        templateLanguage: "en",
+        parameterMapping: [
+          { paramIndex: 1, dataField: "pmName" },
+          { paramIndex: 2, dataField: "editorName" },
+          { paramIndex: 3, dataField: "response" },
+          { paramIndex: 4, dataField: "projectName" },
+        ],
+      },
+      // SA templates
+      {
+        type: "sa.order.placed" as const,
+        templateName: "muffer_new_order",
+        templateLanguage: "en",
+        parameterMapping: [
+          { paramIndex: 1, dataField: "clientName" },
+          { paramIndex: 2, dataField: "serviceType" },
+          { paramIndex: 3, dataField: "amount" },
+        ],
+      },
+      {
+        type: "sa.payout.large" as const,
+        templateName: "muffer_payout_alert",
+        templateLanguage: "en",
+        parameterMapping: [
+          { paramIndex: 1, dataField: "amount" },
+          { paramIndex: 2, dataField: "editorName" },
+        ],
+      },
+      {
+        type: "sa.daily.summary" as const,
+        templateName: "muffer_daily_summary",
+        templateLanguage: "en",
+        parameterMapping: [
+          { paramIndex: 1, dataField: "date" },
+          { paramIndex: 2, dataField: "newOrders" },
+          { paramIndex: 3, dataField: "activeProjects" },
+          { paramIndex: 4, dataField: "atRiskProjects" },
+          { paramIndex: 5, dataField: "pendingPayouts" },
+        ],
+      },
+    ];
+
+    let inserted = 0;
+    for (const template of templates) {
+      const existing = await ctx.db
+        .query("whatsappTemplates")
+        .withIndex("by_type", (q) => q.eq("type", template.type))
+        .first();
+
+      if (!existing) {
+        await ctx.db.insert("whatsappTemplates", {
+          ...template,
+          isActive: true,
+          createdAt: now,
+          updatedAt: now,
+        });
+        inserted++;
+      }
+    }
+
+    return { inserted, total: templates.length };
+  },
+});
+
+// Public mutation to seed templates (requires SUPER_ADMIN)
+export const seedTemplatesPublic = mutation({
+  args: {},
+  handler: async (ctx) => {
+    // Check authentication and require SUPER_ADMIN
+    const identity = await auth.getUserId(ctx);
+    if (!identity) throw new Error("Not authenticated");
+
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_token", (q) => q.eq("tokenIdentifier", identity))
+      .first();
+
+    if (!user || user.role !== "SUPER_ADMIN") {
+      throw new Error("Only SUPER_ADMIN can seed templates");
+    }
+
+    // Same logic as internal mutation
     const now = Date.now();
     
     const templates = [

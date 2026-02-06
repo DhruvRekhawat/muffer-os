@@ -261,6 +261,95 @@ export const updatePreferences = mutation({
   },
 });
 
+// Test notification - sends a test notification to current user
+export const sendTestNotification = mutation({
+  args: {
+    type: notificationType,
+    title: v.optional(v.string()),
+    message: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const identity = await auth.getUserId(ctx);
+    if (!identity) throw new Error("Not authenticated");
+
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_token", (q) => q.eq("tokenIdentifier", identity))
+      .first();
+
+    if (!user) throw new Error("User not found");
+
+    const title = args.title ?? "Test Notification";
+    const message = args.message ?? `This is a test notification of type: ${args.type}`;
+
+    await notifyUser(ctx, {
+      userId: user._id,
+      type: args.type,
+      title,
+      message,
+      data: {
+        amount: 1000,
+        link: "/notifications",
+      },
+    });
+
+    return {
+      success: true,
+      userId: user._id,
+      phone: user.phone ?? "No phone number",
+      type: args.type,
+    };
+  },
+});
+
+// Get WhatsApp notification logs for current user
+export const getMyWhatsAppLogs = query({
+  args: {
+    limit: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const identity = await auth.getUserId(ctx);
+    if (!identity) return [];
+
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_token", (q) => q.eq("tokenIdentifier", identity))
+      .first();
+
+    if (!user) return [];
+
+    const logs = await ctx.db
+      .query("whatsappNotificationLog")
+      .withIndex("by_user", (q) => q.eq("userId", user._id))
+      .order("desc")
+      .take(args.limit ?? 20);
+
+    return logs;
+  },
+});
+
+// Check WhatsApp template status for a notification type
+export const checkTemplateStatus = query({
+  args: {
+    type: notificationType,
+  },
+  handler: async (ctx, args) => {
+    const template = await ctx.db
+      .query("whatsappTemplates")
+      .withIndex("by_type", (q) => q.eq("type", args.type))
+      .first();
+
+    return template
+      ? {
+          exists: true,
+          isActive: template.isActive,
+          templateName: template.templateName,
+          templateLanguage: template.templateLanguage,
+        }
+      : { exists: false };
+  },
+});
+
 // Delete old notifications (for cleanup)
 export const deleteOldNotifications = internalMutation({
   args: { olderThanDays: v.number() },
