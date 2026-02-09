@@ -408,7 +408,15 @@ export default function HiringPage() {
 
                       {item.user.role === "EDITOR" && (
                         <div className="mt-4">
-                          <label className="text-xs text-zinc-500 mb-2 block">Editor Tier (Required)</label>
+                          <label className="text-xs text-zinc-500 mb-2 block">
+                            Editor Tier (Required)
+                            {tierRates === undefined && (
+                              <span className="ml-2 text-zinc-600">Loading tiers...</span>
+                            )}
+                            {tierRates && tierRates.length === 0 && (
+                              <span className="ml-2 text-yellow-500">No tiers configured</span>
+                            )}
+                          </label>
                           <Select
                             value={selectedTiers[item.user._id] || ""}
                             onValueChange={(value) => {
@@ -417,17 +425,24 @@ export default function HiringPage() {
                                 [item.user._id]: value as "JUNIOR" | "STANDARD" | "SENIOR" | "ELITE",
                               }));
                             }}
+                            disabled={!tierRates || tierRates.length === 0}
                           >
-                            <SelectTrigger className="w-full bg-zinc-900 border-zinc-700">
-                              <SelectValue placeholder="Select tier" />
+                            <SelectTrigger className="w-full bg-zinc-900 border-zinc-700 text-zinc-200 hover:bg-zinc-800 disabled:opacity-50 disabled:cursor-not-allowed">
+                              <SelectValue placeholder={tierRates && tierRates.length > 0 ? "Select tier" : "No tiers available"} />
                             </SelectTrigger>
-                            <SelectContent>
-                              {tierRates?.map((tr) => (
-                                <SelectItem key={tr.tier} value={tr.tier}>
-                                  {tr.tier} - ₹{tr.ratePerMin}/min
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
+                            {tierRates && tierRates.length > 0 && (
+                              <SelectContent className="bg-zinc-900 border-zinc-800 text-zinc-200 z-50">
+                                {tierRates.map((tr) => (
+                                  <SelectItem 
+                                    key={tr.tier} 
+                                    value={tr.tier}
+                                    className="hover:bg-zinc-800 focus:bg-zinc-800 cursor-pointer"
+                                  >
+                                    {tr.tier} - ₹{tr.ratePerMin}/min
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            )}
                           </Select>
                           {selectedTiers[item.user._id] && tierRates && (
                             <p className="text-xs text-zinc-500 mt-1">

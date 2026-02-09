@@ -10,14 +10,12 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Card } from "@/components/ui/card";
 import { 
-  ArrowLeft, 
   Loader2, 
   Plus,
   X,
   Trash2,
   FileText,
 } from "lucide-react";
-import Link from "next/link";
 
 type Milestone = {
   title: string;
@@ -126,18 +124,11 @@ export default function TemplatesPage() {
   };
   
   return (
-    <div className="max-w-4xl mx-auto animate-fade-in">
+    <div className="max-w-4xl mx-auto">
       {/* Header */}
-      <div className="mb-8">
-        <Link 
-          href="/dashboard" 
-          className="inline-flex items-center gap-2 text-zinc-400 hover:text-zinc-200 transition-colors mb-4"
-        >
-          <ArrowLeft className="w-4 h-4" />
-          Back to Dashboard
-        </Link>
-        <h1 className="text-2xl font-bold text-zinc-100">Milestone Templates</h1>
-        <p className="text-zinc-400 mt-1">Create and manage milestone templates for projects</p>
+      <div className="mb-6">
+        <h2 className="text-xl font-semibold text-zinc-200">Milestone Templates</h2>
+        <p className="text-zinc-400 mt-1 text-sm">Create and manage milestone templates for projects</p>
       </div>
       
       {error && (

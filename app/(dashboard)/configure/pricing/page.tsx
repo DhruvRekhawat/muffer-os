@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
@@ -22,7 +21,6 @@ import {
 } from "@/components/ui/select";
 
 import {
-  ArrowLeft,
   Loader2,
   Plus,
   Save,
@@ -191,18 +189,11 @@ export default function PricingPage() {
   };
 
   return (
-    <div className="max-w-5xl mx-auto animate-fade-in space-y-6">
+    <div className="max-w-5xl mx-auto space-y-6">
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
-          <Link
-            href="/dashboard"
-            className="inline-flex items-center gap-2 text-zinc-400 hover:text-zinc-200 transition-colors mb-4"
-          >
-            <ArrowLeft className="w-4 h-4" />
-            Back to Dashboard
-          </Link>
-          <h1 className="text-2xl font-bold text-zinc-100">Pricing</h1>
-          <p className="text-zinc-400 mt-1">Configure base prices, add-ons, coupons, and bulk discounts.</p>
+          <h2 className="text-xl font-semibold text-zinc-200">Pricing Configuration</h2>
+          <p className="text-zinc-400 mt-1 text-sm">Configure base prices, add-ons, coupons, and bulk discounts.</p>
           <p className="text-xs text-zinc-500 mt-2">
             Version: {draft.version} • Last updated:{" "}
             {draft.updatedAt ? new Date(draft.updatedAt).toLocaleString() : "Never"}

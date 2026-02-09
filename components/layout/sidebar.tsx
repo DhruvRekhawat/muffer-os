@@ -20,6 +20,7 @@ import {
   Sliders,
   FileText,
   DollarSign,
+  TrendingUp,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -307,6 +308,19 @@ export function Sidebar({ user }: SidebarProps) {
                   >
                     <DollarSign className="w-4 h-4 shrink-0" />
                     <span>Pricing</span>
+                  </Link>
+
+                  <Link
+                    href="/configure/tier-rates"
+                    className={cn(
+                      "flex items-center gap-3 rounded-lg text-sm transition-all px-3 py-2",
+                      pathname === "/configure/tier-rates"
+                        ? "bg-zinc-800/60 text-zinc-100" 
+                        : "text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800/40"
+                    )}
+                  >
+                    <TrendingUp className="w-4 h-4 shrink-0" />
+                    <span>Tier Rates</span>
                   </Link>
 
                   <Link
