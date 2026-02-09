@@ -18,7 +18,7 @@ interface TierRate {
   _id: Id<"tierRates">;
   tier: Tier;
   ratePerMin: number;
-  rushEligible: boolean;
+  rushEligible?: boolean;
   isActive: boolean;
 }
 
