@@ -7,6 +7,9 @@ import { Loader2 } from "lucide-react";
 
 const UGC_BRIEF = `UGC TEST TASK (15-30 seconds)
 
+📋 Open the link below to understand the task. This document can be updated, so always refer to it for the latest requirements:
+https://docs.google.com/document/d/1ECaSAd_4vSxmrw7x3UHwqhuCe1Gxtoa2rqMTHonRTtI/edit?usp=sharing
+
 Read fully before you start. If you can't beat the reference, skip.
 
 Your Goal
@@ -29,6 +32,9 @@ How We Review: Guideline Accuracy, Visual + Audio Quality, Self-Reliance (each 0
 Instant reject: unreadable text / messy captions, music louder than voice, random effects that reduce clarity, feels slow or flat, late submission with no proactive message.`;
 
 const CINEMATIC_BRIEF = `CINEMATIC OR COMEDIC TEST (30-45 seconds)
+
+📋 Open the link below to understand the task. This document can be updated, so always refer to it for the latest requirements:
+https://docs.google.com/document/d/1ECaSAd_4vSxmrw7x3UHwqhuCe1Gxtoa2rqMTHonRTtI/edit?usp=sharing
 
 Read fully before you start. If you can't beat the reference, skip.
 

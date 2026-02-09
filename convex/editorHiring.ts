@@ -57,6 +57,9 @@ const TEST_TASK_CONFIG = {
     driveLink: "https://drive.google.com/drive/folders/1CADOgJg90JV5h_J9q0gJJi-CsiNvZBbz?usp=drive_link",
     summary: `UGC TEST TASK (15-30 seconds)
 
+📋 Open the link below to understand the task. This document can be updated, so always refer to it for the latest requirements:
+https://docs.google.com/document/d/1ECaSAd_4vSxmrw7x3UHwqhuCe1Gxtoa2rqMTHonRTtI/edit?usp=sharing
+
 Read fully before you start. If you can't beat the reference, skip.
 
 Your Goal
@@ -81,6 +84,9 @@ Instant reject: unreadable text, music louder than voice, random effects, slow/f
   CINEMATIC: {
     driveLink: "https://drive.google.com/drive/folders/1CADOgJg90JV5h_J9q0gJJi-CsiNvZBbz?usp=drive_link",
     summary: `CINEMATIC OR COMEDIC TEST (30-45 seconds)
+
+📋 Open the link below to understand the task. This document can be updated, so always refer to it for the latest requirements:
+https://docs.google.com/document/d/1ECaSAd_4vSxmrw7x3UHwqhuCe1Gxtoa2rqMTHonRTtI/edit?usp=sharing
 
 Read fully before you start. If you can't beat the reference, skip.
 
