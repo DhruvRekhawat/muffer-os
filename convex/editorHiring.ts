@@ -402,12 +402,60 @@ export const listReadyForReview = query({
       const u = await ctx.db.get(h.userId);
       if (!u) continue;
       const submission = h.testSubmissionId ? await ctx.db.get(h.testSubmissionId) : null;
+      const approver = h.approvedBy ? await ctx.db.get(h.approvedBy) : null;
       result.push({
         hiring: h,
         user: u,
         testSubmission: submission
           ? { _id: submission._id, driveLink: submission.driveLink, notes: submission.notes }
           : null,
+        approver: approver ? { name: approver.name, email: approver.email } : null,
+      });
+    }
+    return result;
+  },
+});
+
+// List all candidates with optional status filter
+export const listAllCandidates = query({
+  args: {
+    status: v.optional(v.union(
+      v.literal("ONBOARDING"),
+      v.literal("READY_FOR_REVIEW"),
+      v.literal("APPROVED"),
+      v.literal("REJECTED")
+    )),
+  },
+  handler: async (ctx, args) => {
+    await requireSuperAdmin(ctx);
+    
+    let items;
+    if (args.status) {
+      items = await ctx.db
+        .query("editorHiring")
+        .withIndex("by_status", (q) => q.eq("status", args.status!))
+        .order("desc")
+        .collect();
+    } else {
+      // Get all items, ordered by updatedAt descending
+      // Query all and sort manually since we need all statuses
+      const allItems = await ctx.db.query("editorHiring").collect();
+      items = allItems.sort((a, b) => b.updatedAt - a.updatedAt);
+    }
+
+    const result = [];
+    for (const h of items) {
+      const u = await ctx.db.get(h.userId);
+      if (!u) continue;
+      const submission = h.testSubmissionId ? await ctx.db.get(h.testSubmissionId) : null;
+      const approver = h.approvedBy ? await ctx.db.get(h.approvedBy) : null;
+      result.push({
+        hiring: h,
+        user: u,
+        testSubmission: submission
+          ? { _id: submission._id, driveLink: submission.driveLink, notes: submission.notes }
+          : null,
+        approver: approver ? { name: approver.name, email: approver.email } : null,
       });
     }
     return result;

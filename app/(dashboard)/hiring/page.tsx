@@ -20,12 +20,14 @@ import { Id } from "@/convex/_generated/dataModel";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 type StatusFilter = "ALL" | "SUBMITTED" | "APPROVED" | "REJECTED";
+type CandidateStatusFilter = "ALL" | "ONBOARDING" | "READY_FOR_REVIEW" | "APPROVED" | "REJECTED";
 type ViewMode = "APPLICATIONS" | "READY_FOR_REVIEW";
 
 export default function HiringPage() {
   const { canManageHiring } = usePermissions();
   const [viewMode, setViewMode] = useState<ViewMode>("READY_FOR_REVIEW");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("SUBMITTED");
+  const [candidateStatusFilter, setCandidateStatusFilter] = useState<CandidateStatusFilter>("READY_FOR_REVIEW");
   const [processingId, setProcessingId] = useState<string | null>(null);
   const [selectedTiers, setSelectedTiers] = useState<Record<string, "JUNIOR" | "STANDARD" | "SENIOR" | "ELITE" | "">>({});
   
@@ -34,6 +36,9 @@ export default function HiringPage() {
   });
 
   const readyForReview = useQuery(api.editorHiring.listReadyForReview, {});
+  const allCandidates = useQuery(api.editorHiring.listAllCandidates, {
+    status: candidateStatusFilter === "ALL" ? undefined : candidateStatusFilter,
+  });
   const tierRates = useQuery(api.config.listTierRates, {});
   
   const approveApplication = useMutation(api.hiring.approveApplication);
@@ -105,6 +110,21 @@ export default function HiringPage() {
     switch (status) {
       case "SUBMITTED":
         return <Badge className="bg-yellow-500/10 text-yellow-400 border-yellow-500/20">Pending</Badge>;
+      case "APPROVED":
+        return <Badge className="bg-emerald-500/10 text-emerald-400 border-emerald-500/20">Approved</Badge>;
+      case "REJECTED":
+        return <Badge className="bg-red-500/10 text-red-400 border-red-500/20">Rejected</Badge>;
+      default:
+        return null;
+    }
+  };
+
+  const getCandidateStatusBadge = (status: string) => {
+    switch (status) {
+      case "ONBOARDING":
+        return <Badge className="bg-blue-500/10 text-blue-400 border-blue-500/20">Onboarding</Badge>;
+      case "READY_FOR_REVIEW":
+        return <Badge className="bg-purple-500/10 text-purple-400 border-purple-500/20">Ready for Review</Badge>;
       case "APPROVED":
         return <Badge className="bg-emerald-500/10 text-emerald-400 border-emerald-500/20">Approved</Badge>;
       case "REJECTED":
@@ -295,21 +315,48 @@ export default function HiringPage() {
         </>
       ) : (
         <>
-          {readyForReview === undefined ? (
+          {/* Filters for candidates */}
+          <div className="flex gap-2">
+            {(["READY_FOR_REVIEW", "ONBOARDING", "APPROVED", "REJECTED", "ALL"] as CandidateStatusFilter[]).map((status) => (
+              <Button
+                key={status}
+                variant={candidateStatusFilter === status ? "default" : "outline"}
+                size="sm"
+                onClick={() => setCandidateStatusFilter(status)}
+                className={
+                  candidateStatusFilter === status
+                    ? "bg-zinc-700 text-zinc-100"
+                    : "border-zinc-700 text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800"
+                }
+              >
+                {status === "READY_FOR_REVIEW" ? "Ready" : 
+                 status === "ONBOARDING" ? "Onboarding" :
+                 status === "ALL" ? "All" : status}
+              </Button>
+            ))}
+          </div>
+
+          {allCandidates === undefined ? (
             <div className="flex items-center justify-center py-20">
               <Loader2 className="w-8 h-8 animate-spin text-zinc-500" />
             </div>
-          ) : readyForReview.length === 0 ? (
+          ) : allCandidates.length === 0 ? (
             <div className="text-center py-20">
               <div className="w-16 h-16 rounded-full bg-zinc-800/50 flex items-center justify-center mx-auto mb-4">
                 <UserPlus className="w-8 h-8 text-zinc-600" />
               </div>
-              <h3 className="text-lg font-medium text-zinc-300">No candidates ready</h3>
-              <p className="text-zinc-500 mt-1">No onboarding submissions to review yet.</p>
+              <h3 className="text-lg font-medium text-zinc-300">No candidates</h3>
+              <p className="text-zinc-500 mt-1">
+                {candidateStatusFilter === "READY_FOR_REVIEW" 
+                  ? "No candidates ready for review" 
+                  : candidateStatusFilter === "ALL"
+                  ? "No candidates found"
+                  : `No ${candidateStatusFilter.toLowerCase()} candidates`}
+              </p>
             </div>
           ) : (
             <div className="space-y-4">
-              {readyForReview.map((item) => (
+              {allCandidates.map((item) => (
                 <Card key={item.user._id} className="p-6 bg-zinc-900/50 border-zinc-800">
                   <div className="flex items-start justify-between gap-4">
                     <div className="flex-1">
@@ -326,9 +373,7 @@ export default function HiringPage() {
                             {item.user.role === "PM" ? "PM" : "Editor"}
                           </Badge>
                         )}
-                        <Badge className="bg-purple-500/10 text-purple-400 border-purple-500/20">
-                          Ready for review
-                        </Badge>
+                        {getCandidateStatusBadge(item.hiring.status)}
                       </div>
 
                       <div className="space-y-1 text-sm text-zinc-400">
@@ -453,39 +498,65 @@ export default function HiringPage() {
                       )}
                     </div>
 
-                    <div className="flex gap-2">
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => handleRejectEditor(item.user._id)}
-                        disabled={processingId === item.user._id}
-                        className="border-red-500/30 text-red-400 hover:bg-red-500/10"
-                      >
-                        {processingId === item.user._id ? (
-                          <Loader2 className="w-4 h-4 animate-spin" />
-                        ) : (
-                          <>
-                            <XCircle className="w-4 h-4 mr-1" />
-                            Reject
-                          </>
+                    {item.hiring.status === "READY_FOR_REVIEW" && (
+                      <div className="flex gap-2">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => handleRejectEditor(item.user._id)}
+                          disabled={processingId === item.user._id}
+                          className="border-red-500/30 text-red-400 hover:bg-red-500/10"
+                        >
+                          {processingId === item.user._id ? (
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                          ) : (
+                            <>
+                              <XCircle className="w-4 h-4 mr-1" />
+                              Reject
+                            </>
+                          )}
+                        </Button>
+                        <Button
+                          size="sm"
+                          onClick={() => handleApproveEditor(item.user._id, item.user.role || "")}
+                          disabled={processingId === item.user._id || (item.user.role === "EDITOR" && !selectedTiers[item.user._id])}
+                          className="bg-emerald-600 hover:bg-emerald-700 text-white"
+                        >
+                          {processingId === item.user._id ? (
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                          ) : (
+                            <>
+                              <CheckCircle className="w-4 h-4 mr-1" />
+                              {item.user.role === "PM" ? "Approve PM" : "Approve editor"}
+                            </>
+                          )}
+                        </Button>
+                      </div>
+                    )}
+                    {item.hiring.status !== "READY_FOR_REVIEW" && (
+                      <div className="text-sm text-zinc-500 space-y-1">
+                        {item.hiring.status === "APPROVED" && item.hiring.approvedAt && (
+                          <div>
+                            <p>
+                              Approved on {new Date(item.hiring.approvedAt).toLocaleDateString()}
+                            </p>
+                            {item.approver && (
+                              <p className="text-xs text-zinc-600">
+                                by {item.approver.name}
+                              </p>
+                            )}
+                          </div>
                         )}
-                      </Button>
-                      <Button
-                        size="sm"
-                        onClick={() => handleApproveEditor(item.user._id, item.user.role || "")}
-                        disabled={processingId === item.user._id || (item.user.role === "EDITOR" && !selectedTiers[item.user._id])}
-                        className="bg-emerald-600 hover:bg-emerald-700 text-white"
-                      >
-                        {processingId === item.user._id ? (
-                          <Loader2 className="w-4 h-4 animate-spin" />
-                        ) : (
-                          <>
-                            <CheckCircle className="w-4 h-4 mr-1" />
-                            {item.user.role === "PM" ? "Approve PM" : "Approve editor"}
-                          </>
+                        {item.hiring.status === "REJECTED" && item.hiring.updatedAt && (
+                          <p>
+                            Rejected on {new Date(item.hiring.updatedAt).toLocaleDateString()}
+                          </p>
                         )}
-                      </Button>
-                    </div>
+                        {item.hiring.status === "ONBOARDING" && (
+                          <p className="text-blue-400">Currently onboarding</p>
+                        )}
+                      </div>
+                    )}
                   </div>
                 </Card>
               ))}
