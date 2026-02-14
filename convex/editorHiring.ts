@@ -344,6 +344,7 @@ export const createTestProject = mutation({
 export const acceptNda = mutation({
   args: {
     fullName: v.string(),
+    fathersName: v.optional(v.string()),
     signedAgreementPdfUrl: v.optional(v.string()),
     signedAgreementStorageId: v.optional(v.id("_storage")),
   },
@@ -366,6 +367,7 @@ export const acceptNda = mutation({
       }
       await ctx.db.patch(hiring._id, {
         ndaAcceptedName: args.fullName.trim(),
+        ndaAcceptedFathersName: args.fathersName?.trim(),
         ndaAcceptedAt: now,
         ndaCheckboxesCompletedAt: now,
         signedAgreementPdfUrl: pdfUrl,
@@ -378,6 +380,7 @@ export const acceptNda = mutation({
     // PM flow: patch NDA and move to admin review.
     await ctx.db.patch(hiring._id, {
       ndaAcceptedName: args.fullName.trim(),
+      ndaAcceptedFathersName: args.fathersName?.trim(),
       ndaAcceptedAt: now,
       status: "READY_FOR_REVIEW",
       updatedAt: now,
@@ -570,6 +573,141 @@ export const rejectEditor = mutation({
       entityType: "user",
       entityId: args.userId.toString(),
       metadata: { email: user.email, role: user.role, reason: args.reason },
+      createdAt: now,
+    });
+
+    return args.userId;
+  },
+});
+
+export const undoEditorRejection = mutation({
+  args: {
+    userId: v.id("users"),
+  },
+  handler: async (ctx, args) => {
+    const sa = await requireSuperAdmin(ctx);
+    const user = await ctx.db.get(args.userId);
+    if (!user) throw new Error("User not found");
+    if (user.role !== "EDITOR" && user.role !== "PM") {
+      throw new Error("User is not eligible");
+    }
+
+    const hiring = await ctx.db
+      .query("editorHiring")
+      .withIndex("by_user", (q) => q.eq("userId", args.userId))
+      .first();
+    if (!hiring) throw new Error("No hiring record found");
+    if (hiring.status !== "REJECTED") {
+      throw new Error("User is not in rejected status");
+    }
+
+    const now = Date.now();
+    await ctx.db.patch(hiring._id, {
+      status: "ONBOARDING",
+      updatedAt: now,
+    });
+
+    await ctx.db.insert("auditEvents", {
+      actorId: sa._id,
+      actorRole: sa.role ?? "SUPER_ADMIN",
+      action: user.role === "PM" ? "hiring.pm.rejection.undone" : "hiring.editor.rejection.undone",
+      entityType: "user",
+      entityId: args.userId.toString(),
+      metadata: { email: user.email, role: user.role },
+      createdAt: now,
+    });
+
+    return args.userId;
+  },
+});
+
+export const fireEditor = mutation({
+  args: {
+    userId: v.id("users"),
+    newStatus: v.union(v.literal("SUSPENDED"), v.literal("REJECTED")),
+    reason: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const sa = await requireSuperAdmin(ctx);
+    const user = await ctx.db.get(args.userId);
+    if (!user) throw new Error("User not found");
+    if (user.role !== "EDITOR" && user.role !== "PM") {
+      throw new Error("User is not eligible to be fired");
+    }
+
+    const hiring = await ctx.db
+      .query("editorHiring")
+      .withIndex("by_user", (q) => q.eq("userId", args.userId))
+      .first();
+    if (!hiring) throw new Error("No hiring record found");
+    if (hiring.status !== "APPROVED") {
+      throw new Error("Only approved editors/PMs can be fired");
+    }
+
+    const now = Date.now();
+    await ctx.db.patch(args.userId, { status: args.newStatus });
+
+    await ctx.db.insert("auditEvents", {
+      actorId: sa._id,
+      actorRole: sa.role ?? "SUPER_ADMIN",
+      action: user.role === "PM" ? "hiring.pm.fired" : "hiring.editor.fired",
+      entityType: "user",
+      entityId: args.userId.toString(),
+      metadata: {
+        email: user.email,
+        role: user.role,
+        newStatus: args.newStatus,
+        reason: args.reason,
+      },
+      createdAt: now,
+    });
+
+    return args.userId;
+  },
+});
+
+export const updateEditorTier = mutation({
+  args: {
+    userId: v.id("users"),
+    tier: v.union(
+      v.literal("JUNIOR"),
+      v.literal("STANDARD"),
+      v.literal("SENIOR"),
+      v.literal("ELITE")
+    ),
+  },
+  handler: async (ctx, args) => {
+    const sa = await requireSuperAdmin(ctx);
+    const user = await ctx.db.get(args.userId);
+    if (!user) throw new Error("User not found");
+    if (user.role !== "EDITOR") {
+      throw new Error("Only editors can have tiers assigned");
+    }
+
+    // Lookup tier rate
+    const tierRate = await ctx.db
+      .query("tierRates")
+      .withIndex("by_tier", (q) => q.eq("tier", args.tier))
+      .filter((q) => q.eq(q.field("isActive"), true))
+      .first();
+    
+    if (!tierRate) {
+      throw new Error(`Tier rate not found for tier: ${args.tier}`);
+    }
+
+    const now = Date.now();
+    await ctx.db.patch(args.userId, {
+      tier: args.tier,
+      tierRatePerMin: tierRate.ratePerMin,
+    });
+
+    await ctx.db.insert("auditEvents", {
+      actorId: sa._id,
+      actorRole: sa.role ?? "SUPER_ADMIN",
+      action: "hiring.editor.tier.updated",
+      entityType: "user",
+      entityId: args.userId.toString(),
+      metadata: { email: user.email, tier: args.tier, ratePerMin: tierRate.ratePerMin },
       createdAt: now,
     });
 

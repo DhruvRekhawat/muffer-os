@@ -199,7 +199,6 @@ export function Sidebar({ user }: SidebarProps) {
               />
               {!isCollapsed && (
                 <div className="overflow-hidden flex items-center gap-2">
-                  <span className="text-xl font-bold text-zinc-100 tracking-tight">muffer</span>
                   <span className={cn(
                     "text-xs px-2 py-0.5 rounded-full border",
                     roleBadge.color

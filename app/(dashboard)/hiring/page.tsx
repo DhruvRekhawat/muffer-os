@@ -14,68 +14,80 @@ import {
   XCircle, 
   ExternalLink,
   Calendar,
-  Briefcase
+  Briefcase,
+  RotateCcw,
+  UserX
 } from "lucide-react";
 import { Id } from "@/convex/_generated/dataModel";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  AlertDialog,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Input } from "@/components/ui/input";
 
-type StatusFilter = "ALL" | "SUBMITTED" | "APPROVED" | "REJECTED";
-type CandidateStatusFilter = "ALL" | "ONBOARDING" | "READY_FOR_REVIEW" | "APPROVED" | "REJECTED";
-type ViewMode = "APPLICATIONS" | "READY_FOR_REVIEW";
+type CandidateStatusFilter = "ALL" | "ONBOARDING" | "READY_FOR_REVIEW" | "APPROVED_NDA_PENDING" | "ACTIVE_EDITORS" | "REJECTED";
 
 export default function HiringPage() {
   const { canManageHiring } = usePermissions();
-  const [viewMode, setViewMode] = useState<ViewMode>("READY_FOR_REVIEW");
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>("SUBMITTED");
   const [candidateStatusFilter, setCandidateStatusFilter] = useState<CandidateStatusFilter>("READY_FOR_REVIEW");
   const [processingId, setProcessingId] = useState<string | null>(null);
+  const [savingTierId, setSavingTierId] = useState<string | null>(null);
   const [selectedTiers, setSelectedTiers] = useState<Record<string, "JUNIOR" | "STANDARD" | "SENIOR" | "ELITE" | "">>({});
+  const [undoRejectOpen, setUndoRejectOpen] = useState<Id<"users"> | null>(null);
+  const [fireEditorOpen, setFireEditorOpen] = useState<{ userId: Id<"users">; name: string } | null>(null);
+  const [fireStatus, setFireStatus] = useState<"SUSPENDED" | "REJECTED">("SUSPENDED");
+  const [fireReason, setFireReason] = useState("");
   
-  const applications = useQuery(api.hiring.listApplications, {
-    status: statusFilter === "ALL" ? undefined : statusFilter,
+  const queryStatus =
+    candidateStatusFilter === "ALL"
+      ? undefined
+      : candidateStatusFilter === "APPROVED_NDA_PENDING" || candidateStatusFilter === "ACTIVE_EDITORS"
+      ? "APPROVED"
+      : candidateStatusFilter;
+
+  const allCandidatesRaw = useQuery(api.editorHiring.listAllCandidates, {
+    status: queryStatus,
   });
 
-  const readyForReview = useQuery(api.editorHiring.listReadyForReview, {});
-  const allCandidates = useQuery(api.editorHiring.listAllCandidates, {
-    status: candidateStatusFilter === "ALL" ? undefined : candidateStatusFilter,
-  });
+  const allCandidates =
+    allCandidatesRaw === undefined
+      ? undefined
+      : candidateStatusFilter === "APPROVED_NDA_PENDING"
+      ? allCandidatesRaw.filter((item) => item.hiring.status === "APPROVED" && !item.hiring.ndaAcceptedAt)
+      : candidateStatusFilter === "ACTIVE_EDITORS"
+      ? allCandidatesRaw.filter((item) => item.hiring.status === "APPROVED" && !!item.hiring.ndaAcceptedAt)
+      : allCandidatesRaw;
   const tierRates = useQuery(api.config.listTierRates, {});
   
-  const approveApplication = useMutation(api.hiring.approveApplication);
-  const rejectApplication = useMutation(api.hiring.rejectApplication);
   const approveEditor = useMutation(api.editorHiring.approveEditor);
   const rejectEditor = useMutation(api.editorHiring.rejectEditor);
-  
-  const handleApprove = async (applicationId: Id<"editorApplications">) => {
-    setProcessingId(applicationId);
-    try {
-      await approveApplication({ applicationId });
-    } finally {
-      setProcessingId(null);
-    }
-  };
-  
-  const handleReject = async (applicationId: Id<"editorApplications">) => {
-    const reason = prompt("Rejection reason (optional):");
-    setProcessingId(applicationId);
-    try {
-      await rejectApplication({ applicationId, reason: reason || undefined });
-    } finally {
-      setProcessingId(null);
-    }
-  };
+  const undoEditorRejection = useMutation(api.editorHiring.undoEditorRejection);
+  const fireEditor = useMutation(api.editorHiring.fireEditor);
+  const updateEditorTier = useMutation(api.editorHiring.updateEditorTier);
 
-  const handleApproveEditor = async (userId: Id<"users">, userRole: string) => {
-    if (userRole === "EDITOR" && !selectedTiers[userId]) {
-      alert("Please select a tier for this editor");
-      return;
+  const handleApproveEditor = async (userId: Id<"users">, userRole: string, userTier?: string) => {
+    if (userRole === "EDITOR") {
+      const selectedTier = selectedTiers[userId];
+      const existingTier = userTier;
+      const tierToUse = selectedTier || existingTier;
+      
+      if (!tierToUse) {
+        alert("Please select and save a tier for this editor first");
+        return;
+      }
     }
     
     setProcessingId(userId);
     try {
+      const tierToUse = selectedTiers[userId] || (userRole === "EDITOR" ? userTier : undefined);
       await approveEditor({ 
         userId,
-        tier: userRole === "EDITOR" ? selectedTiers[userId] as "JUNIOR" | "STANDARD" | "SENIOR" | "ELITE" : undefined,
+        tier: userRole === "EDITOR" && tierToUse ? tierToUse as "JUNIOR" | "STANDARD" | "SENIOR" | "ELITE" : undefined,
       });
       // Clear selected tier after approval
       setSelectedTiers(prev => {
@@ -95,6 +107,48 @@ export default function HiringPage() {
       await rejectEditor({ userId, reason: reason || undefined });
     } finally {
       setProcessingId(null);
+    }
+  };
+
+  const handleUndoRejection = async (userId: Id<"users">) => {
+    setProcessingId(userId);
+    try {
+      await undoEditorRejection({ userId });
+      setUndoRejectOpen(null);
+    } finally {
+      setProcessingId(null);
+    }
+  };
+
+  const handleFireEditor = async () => {
+    if (!fireEditorOpen) return;
+    setProcessingId(fireEditorOpen.userId);
+    try {
+      await fireEditor({
+        userId: fireEditorOpen.userId,
+        newStatus: fireStatus,
+        reason: fireReason.trim() || undefined,
+      });
+      setFireEditorOpen(null);
+      setFireReason("");
+      setFireStatus("SUSPENDED");
+    } finally {
+      setProcessingId(null);
+    }
+  };
+
+  const handleSaveTier = async (userId: Id<"users">) => {
+    const tier = selectedTiers[userId];
+    if (!tier) {
+      alert("Please select a tier first");
+      return;
+    }
+    
+    setSavingTierId(userId);
+    try {
+      await updateEditorTier({ userId, tier: tier as "JUNIOR" | "STANDARD" | "SENIOR" | "ELITE" });
+    } finally {
+      setSavingTierId(null);
     }
   };
   
@@ -119,14 +173,17 @@ export default function HiringPage() {
     }
   };
 
-  const getCandidateStatusBadge = (status: string) => {
+  const getCandidateStatusBadge = (status: string, ndaAcceptedAt?: number | null) => {
     switch (status) {
       case "ONBOARDING":
         return <Badge className="bg-blue-500/10 text-blue-400 border-blue-500/20">Onboarding</Badge>;
       case "READY_FOR_REVIEW":
         return <Badge className="bg-purple-500/10 text-purple-400 border-purple-500/20">Ready for Review</Badge>;
       case "APPROVED":
-        return <Badge className="bg-emerald-500/10 text-emerald-400 border-emerald-500/20">Approved</Badge>;
+        if (ndaAcceptedAt) {
+          return <Badge className="bg-emerald-500/10 text-emerald-400 border-emerald-500/20">Active</Badge>;
+        }
+        return <Badge className="bg-amber-500/10 text-amber-400 border-amber-500/20">NDA Pending</Badge>;
       case "REJECTED":
         return <Badge className="bg-red-500/10 text-red-400 border-red-500/20">Rejected</Badge>;
       default:
@@ -142,182 +199,10 @@ export default function HiringPage() {
         <p className="text-zinc-400 mt-1">Review applications and test submissions</p>
       </div>
 
-      {/* Mode switch */}
-      <div className="flex gap-2">
-        <Button
-          variant={viewMode === "READY_FOR_REVIEW" ? "default" : "outline"}
-          size="sm"
-          onClick={() => setViewMode("READY_FOR_REVIEW")}
-          className={
-            viewMode === "READY_FOR_REVIEW"
-              ? "bg-zinc-700 text-zinc-100"
-              : "border-zinc-700 text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800"
-          }
-        >
-          Ready for Review
-        </Button>
-        <Button
-          variant={viewMode === "APPLICATIONS" ? "default" : "outline"}
-          size="sm"
-          onClick={() => setViewMode("APPLICATIONS")}
-          className={
-            viewMode === "APPLICATIONS"
-              ? "bg-zinc-700 text-zinc-100"
-              : "border-zinc-700 text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800"
-          }
-        >
-          Applications
-        </Button>
-      </div>
-      
-      {viewMode === "APPLICATIONS" ? (
-        <>
-          {/* Filters */}
-          <div className="flex gap-2">
-            {(["SUBMITTED", "APPROVED", "REJECTED", "ALL"] as StatusFilter[]).map((status) => (
-              <Button
-                key={status}
-                variant={statusFilter === status ? "default" : "outline"}
-                size="sm"
-                onClick={() => setStatusFilter(status)}
-                className={
-                  statusFilter === status
-                    ? "bg-zinc-700 text-zinc-100"
-                    : "border-zinc-700 text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800"
-                }
-              >
-                {status === "SUBMITTED" ? "Pending" : status === "ALL" ? "All" : status}
-              </Button>
-            ))}
-          </div>
-
-          {/* Content */}
-          {applications === undefined ? (
-            <div className="flex items-center justify-center py-20">
-              <Loader2 className="w-8 h-8 animate-spin text-zinc-500" />
-            </div>
-          ) : applications.length === 0 ? (
-            <div className="text-center py-20">
-              <div className="w-16 h-16 rounded-full bg-zinc-800/50 flex items-center justify-center mx-auto mb-4">
-                <UserPlus className="w-8 h-8 text-zinc-600" />
-              </div>
-              <h3 className="text-lg font-medium text-zinc-300">No applications</h3>
-              <p className="text-zinc-500 mt-1">
-                {statusFilter === "SUBMITTED" ? "No pending applications" : "No applications found"}
-              </p>
-            </div>
-          ) : (
-            <div className="space-y-4">
-              {applications.map((app) => (
-                <Card key={app._id} className="p-6 bg-zinc-900/50 border-zinc-800">
-                  <div className="flex items-start justify-between">
-                    <div className="flex-1">
-                      <div className="flex items-center gap-3 mb-2">
-                        <h3 className="text-lg font-semibold text-zinc-200">{app.name}</h3>
-                        {getStatusBadge(app.status)}
-                      </div>
-                      
-                      <div className="space-y-1 text-sm text-zinc-400">
-                        <p>{app.email}</p>
-                        {app.phone && <p>{app.phone}</p>}
-                      </div>
-                      
-                      <div className="flex items-center gap-4 mt-4 text-sm text-zinc-500">
-                        {app.occupation && (
-                          <div className="flex items-center gap-1">
-                            <Briefcase className="w-4 h-4" />
-                            <span>{app.occupation}</span>
-                          </div>
-                        )}
-                        <div className="flex items-center gap-1">
-                          <Calendar className="w-4 h-4" />
-                          <span>Applied {new Date(app.createdAt).toLocaleDateString()}</span>
-                        </div>
-                        {app.canStartImmediately && (
-                          <Badge className="bg-emerald-500/10 text-emerald-400 border-emerald-500/20">
-                            Can start immediately
-                          </Badge>
-                        )}
-                      </div>
-                      
-                      {app.experience && (
-                        <p className="mt-4 text-sm text-zinc-400">{app.experience}</p>
-                      )}
-                      
-                      {app.tools.length > 0 && (
-                        <div className="mt-4 flex flex-wrap gap-2">
-                          {app.tools.map((tool) => (
-                            <Badge key={tool} variant="outline" className="border-zinc-700 text-zinc-400">
-                              {tool}
-                            </Badge>
-                          ))}
-                        </div>
-                      )}
-                      
-                      {app.portfolioLinks.length > 0 && (
-                        <div className="mt-4 flex flex-wrap gap-2">
-                          {app.portfolioLinks.map((link, i) => (
-                            <a
-                              key={i}
-                              href={link}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="inline-flex items-center gap-1 text-sm text-rose-400 hover:text-rose-300"
-                            >
-                              <ExternalLink className="w-3 h-3" />
-                              Portfolio {i + 1}
-                            </a>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                    
-                    {app.status === "SUBMITTED" && (
-                      <div className="flex gap-2 ml-4">
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => handleReject(app._id)}
-                          disabled={processingId === app._id}
-                          className="border-red-500/30 text-red-400 hover:bg-red-500/10"
-                        >
-                          {processingId === app._id ? (
-                            <Loader2 className="w-4 h-4 animate-spin" />
-                          ) : (
-                            <>
-                              <XCircle className="w-4 h-4 mr-1" />
-                              Reject
-                            </>
-                          )}
-                        </Button>
-                        <Button
-                          size="sm"
-                          onClick={() => handleApprove(app._id)}
-                          disabled={processingId === app._id}
-                          className="bg-emerald-600 hover:bg-emerald-700 text-white"
-                        >
-                          {processingId === app._id ? (
-                            <Loader2 className="w-4 h-4 animate-spin" />
-                          ) : (
-                            <>
-                              <CheckCircle className="w-4 h-4 mr-1" />
-                              Approve
-                            </>
-                          )}
-                        </Button>
-                      </div>
-                    )}
-                  </div>
-                </Card>
-              ))}
-            </div>
-          )}
-        </>
-      ) : (
-        <>
-          {/* Filters for candidates */}
-          <div className="flex gap-2">
-            {(["READY_FOR_REVIEW", "ONBOARDING", "APPROVED", "REJECTED", "ALL"] as CandidateStatusFilter[]).map((status) => (
+      {/* Candidates section */}
+      <div className="space-y-4">
+        <div className="flex gap-2 flex-wrap">
+            {(["READY_FOR_REVIEW", "ONBOARDING", "APPROVED_NDA_PENDING", "ACTIVE_EDITORS", "REJECTED", "ALL"] as CandidateStatusFilter[]).map((status) => (
               <Button
                 key={status}
                 variant={candidateStatusFilter === status ? "default" : "outline"}
@@ -331,6 +216,8 @@ export default function HiringPage() {
               >
                 {status === "READY_FOR_REVIEW" ? "Ready" : 
                  status === "ONBOARDING" ? "Onboarding" :
+                 status === "APPROVED_NDA_PENDING" ? "NDA Pending" :
+                 status === "ACTIVE_EDITORS" ? "Active Editors" :
                  status === "ALL" ? "All" : status}
               </Button>
             ))}
@@ -349,6 +236,10 @@ export default function HiringPage() {
               <p className="text-zinc-500 mt-1">
                 {candidateStatusFilter === "READY_FOR_REVIEW" 
                   ? "No candidates ready for review" 
+                  : candidateStatusFilter === "APPROVED_NDA_PENDING"
+                  ? "No approved editors waiting for NDA"
+                  : candidateStatusFilter === "ACTIVE_EDITORS"
+                  ? "No active editors yet"
                   : candidateStatusFilter === "ALL"
                   ? "No candidates found"
                   : `No ${candidateStatusFilter.toLowerCase()} candidates`}
@@ -373,7 +264,7 @@ export default function HiringPage() {
                             {item.user.role === "PM" ? "PM" : "Editor"}
                           </Badge>
                         )}
-                        {getCandidateStatusBadge(item.hiring.status)}
+                        {getCandidateStatusBadge(item.hiring.status, item.hiring.ndaAcceptedAt)}
                       </div>
 
                       <div className="space-y-1 text-sm text-zinc-400">
@@ -462,36 +353,54 @@ export default function HiringPage() {
                               <span className="ml-2 text-yellow-500">No tiers configured</span>
                             )}
                           </label>
-                          <Select
-                            value={selectedTiers[item.user._id] || ""}
-                            onValueChange={(value) => {
-                              setSelectedTiers(prev => ({
-                                ...prev,
-                                [item.user._id]: value as "JUNIOR" | "STANDARD" | "SENIOR" | "ELITE",
-                              }));
-                            }}
-                            disabled={!tierRates || tierRates.length === 0}
-                          >
-                            <SelectTrigger className="w-full bg-zinc-900 border-zinc-700 text-zinc-200 hover:bg-zinc-800 disabled:opacity-50 disabled:cursor-not-allowed">
-                              <SelectValue placeholder={tierRates && tierRates.length > 0 ? "Select tier" : "No tiers available"} />
-                            </SelectTrigger>
-                            {tierRates && tierRates.length > 0 && (
-                              <SelectContent className="bg-zinc-900 border-zinc-800 text-zinc-200 z-50">
-                                {tierRates.map((tr) => (
-                                  <SelectItem 
-                                    key={tr.tier} 
-                                    value={tr.tier}
-                                    className="hover:bg-zinc-800 focus:bg-zinc-800 cursor-pointer"
-                                  >
-                                    {tr.tier} - ₹{tr.ratePerMin}/min
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
+                          <div className="flex gap-2 items-end">
+                            <div className="flex-1">
+                              <Select
+                                value={selectedTiers[item.user._id] || item.user.tier || ""}
+                                onValueChange={(value) => {
+                                  setSelectedTiers(prev => ({
+                                    ...prev,
+                                    [item.user._id]: value as "JUNIOR" | "STANDARD" | "SENIOR" | "ELITE",
+                                  }));
+                                }}
+                                disabled={!tierRates || tierRates.length === 0}
+                              >
+                                <SelectTrigger className="w-full bg-zinc-900 border-zinc-700 text-zinc-200 hover:bg-zinc-800 disabled:opacity-50 disabled:cursor-not-allowed">
+                                  <SelectValue placeholder={tierRates && tierRates.length > 0 ? "Select tier" : "No tiers available"} />
+                                </SelectTrigger>
+                                {tierRates && tierRates.length > 0 && (
+                                  <SelectContent className="bg-zinc-900 border-zinc-800 text-zinc-200 z-50">
+                                    {tierRates.map((tr) => (
+                                      <SelectItem 
+                                        key={tr.tier} 
+                                        value={tr.tier}
+                                        className="hover:bg-zinc-800 focus:bg-zinc-800 cursor-pointer"
+                                      >
+                                        {tr.tier} - ₹{tr.ratePerMin}/min
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                )}
+                              </Select>
+                            </div>
+                            {selectedTiers[item.user._id] && selectedTiers[item.user._id] !== item.user.tier && (
+                              <Button
+                                size="sm"
+                                onClick={() => handleSaveTier(item.user._id)}
+                                disabled={savingTierId === item.user._id}
+                                className="bg-zinc-700 hover:bg-zinc-600 text-zinc-100 whitespace-nowrap"
+                              >
+                                {savingTierId === item.user._id ? (
+                                  <Loader2 className="w-4 h-4 animate-spin" />
+                                ) : (
+                                  "Save"
+                                )}
+                              </Button>
                             )}
-                          </Select>
-                          {selectedTiers[item.user._id] && tierRates && (
+                          </div>
+                          {(selectedTiers[item.user._id] || item.user.tier) && tierRates && (
                             <p className="text-xs text-zinc-500 mt-1">
-                              Rate: ₹{tierRates.find(tr => tr.tier === selectedTiers[item.user._id])?.ratePerMin}/minute
+                              Rate: ₹{tierRates.find(tr => tr.tier === (selectedTiers[item.user._id] || item.user.tier))?.ratePerMin}/minute
                             </p>
                           )}
                         </div>
@@ -518,8 +427,8 @@ export default function HiringPage() {
                         </Button>
                         <Button
                           size="sm"
-                          onClick={() => handleApproveEditor(item.user._id, item.user.role || "")}
-                          disabled={processingId === item.user._id || (item.user.role === "EDITOR" && !selectedTiers[item.user._id])}
+                          onClick={() => handleApproveEditor(item.user._id, item.user.role || "", item.user.tier)}
+                          disabled={processingId === item.user._id || (item.user.role === "EDITOR" && !selectedTiers[item.user._id] && !item.user.tier)}
                           className="bg-emerald-600 hover:bg-emerald-700 text-white"
                         >
                           {processingId === item.user._id ? (
@@ -533,9 +442,66 @@ export default function HiringPage() {
                         </Button>
                       </div>
                     )}
-                    {item.hiring.status !== "READY_FOR_REVIEW" && (
+                    {item.hiring.status === "REJECTED" && (
+                      <div className="flex flex-col gap-2 items-end">
+                        {item.hiring.updatedAt && (
+                          <p className="text-sm text-zinc-500">
+                            Rejected on {new Date(item.hiring.updatedAt).toLocaleDateString()}
+                          </p>
+                        )}
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => setUndoRejectOpen(item.user._id)}
+                          disabled={processingId === item.user._id}
+                          className="border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/10"
+                        >
+                          {processingId === item.user._id ? (
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                          ) : (
+                            <>
+                              <RotateCcw className="w-4 h-4 mr-1" />
+                              Undo rejection
+                            </>
+                          )}
+                        </Button>
+                      </div>
+                    )}
+                    {item.hiring.status === "APPROVED" &&
+                      (item.user.status === "ACTIVE" ||
+                        item.user.status === "INVITED" ||
+                        !item.user.status) && (
+                      <div className="flex flex-col gap-2 items-end">
+                        {item.hiring.approvedAt && (
+                          <div className="text-sm text-zinc-500">
+                            <p>
+                              Approved on {new Date(item.hiring.approvedAt).toLocaleDateString()}
+                            </p>
+                            {item.approver && (
+                              <p className="text-xs text-zinc-600">
+                                by {item.approver.name}
+                              </p>
+                            )}
+                          </div>
+                        )}
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() =>
+                            setFireEditorOpen({ userId: item.user._id, name: item.user.name })
+                          }
+                          disabled={processingId === item.user._id}
+                          className="border-red-500/30 text-red-400 hover:bg-red-500/10"
+                        >
+                          <UserX className="w-4 h-4 mr-1" />
+                          Fire
+                        </Button>
+                      </div>
+                    )}
+                    {item.hiring.status === "APPROVED" &&
+                      (item.user.status === "SUSPENDED" || item.user.status === "REJECTED") && (
                       <div className="text-sm text-zinc-500 space-y-1">
-                        {item.hiring.status === "APPROVED" && item.hiring.approvedAt && (
+                        {item.hiring.approvedAt && (
                           <div>
                             <p>
                               Approved on {new Date(item.hiring.approvedAt).toLocaleDateString()}
@@ -547,14 +513,20 @@ export default function HiringPage() {
                             )}
                           </div>
                         )}
-                        {item.hiring.status === "REJECTED" && item.hiring.updatedAt && (
-                          <p>
-                            Rejected on {new Date(item.hiring.updatedAt).toLocaleDateString()}
-                          </p>
-                        )}
-                        {item.hiring.status === "ONBOARDING" && (
-                          <p className="text-blue-400">Currently onboarding</p>
-                        )}
+                        <Badge
+                          className={
+                            item.user.status === "SUSPENDED"
+                              ? "bg-amber-500/10 text-amber-400 border-amber-500/20"
+                              : "bg-red-500/10 text-red-400 border-red-500/20"
+                          }
+                        >
+                          {item.user.status === "SUSPENDED" ? "Suspended" : "Fired"}
+                        </Badge>
+                      </div>
+                    )}
+                    {item.hiring.status === "ONBOARDING" && (
+                      <div className="text-sm text-zinc-500">
+                        <p className="text-blue-400">Currently onboarding</p>
                       </div>
                     )}
                   </div>
@@ -562,8 +534,104 @@ export default function HiringPage() {
               ))}
             </div>
           )}
-        </>
-      )}
+      </div>
+
+      {/* Undo Rejection Dialog */}
+      <AlertDialog
+        open={!!undoRejectOpen}
+        onOpenChange={(open) => !open && setUndoRejectOpen(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Undo rejection?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will move the candidate back to Onboarding status. They will need to complete the onboarding process again before review.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <Button variant="outline" onClick={() => setUndoRejectOpen(null)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={() => undoRejectOpen && handleUndoRejection(undoRejectOpen)}
+              disabled={!!undoRejectOpen && processingId === undoRejectOpen}
+              className="bg-emerald-600 hover:bg-emerald-700"
+            >
+              {undoRejectOpen && processingId === undoRejectOpen ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <>
+                  <RotateCcw className="w-4 h-4 mr-1" />
+                  Undo rejection
+                </>
+              )}
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Fire Editor Dialog */}
+      <AlertDialog
+        open={!!fireEditorOpen}
+        onOpenChange={(open) => {
+          if (!open) {
+            setFireEditorOpen(null);
+            setFireReason("");
+            setFireStatus("SUSPENDED");
+          }
+        }}
+      >
+        <AlertDialogContent className="max-w-md">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Fire {fireEditorOpen?.name ?? "editor"}?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will revoke access. Choose the new status and optionally add a reason.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="space-y-4 py-2">
+            <div>
+              <label className="text-sm font-medium text-zinc-300 mb-2 block">New status</label>
+              <Select value={fireStatus} onValueChange={(v) => setFireStatus(v as "SUSPENDED" | "REJECTED")}>
+                <SelectTrigger className="bg-zinc-900 border-zinc-700 text-zinc-200">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="SUSPENDED">Suspended (can be reinstated)</SelectItem>
+                  <SelectItem value="REJECTED">Rejected (permanent)</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <label className="text-sm font-medium text-zinc-300 mb-2 block">Reason (optional)</label>
+              <Input
+                value={fireReason}
+                onChange={(e) => setFireReason(e.target.value)}
+                placeholder="Enter reason..."
+                className="bg-zinc-900 border-zinc-700 text-zinc-200 placeholder:text-zinc-500"
+              />
+            </div>
+          </div>
+          <AlertDialogFooter>
+            <Button variant="outline" onClick={() => setFireEditorOpen(null)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={handleFireEditor}
+              disabled={!!fireEditorOpen && processingId === fireEditorOpen.userId}
+              className="border-red-500/30 text-red-400 hover:bg-red-500/10 hover:text-red-300"
+            >
+              {fireEditorOpen && processingId === fireEditorOpen.userId ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <>
+                  <UserX className="w-4 h-4 mr-1" />
+                  Fire
+                </>
+              )}
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

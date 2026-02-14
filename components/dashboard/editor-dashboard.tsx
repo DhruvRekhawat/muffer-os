@@ -18,8 +18,8 @@ import {
   Check
 } from "lucide-react";
 import Link from "next/link";
-
 import { Doc } from "@/convex/_generated/dataModel";
+import { Confetti } from "@/components/ui/confetti";
 
 interface EditorDashboardProps {
   user: Doc<"users">;
@@ -27,6 +27,10 @@ interface EditorDashboardProps {
 
 export function EditorDashboard({ user }: EditorDashboardProps) {
   const stats = useQuery(api.users.getEditorStats, {});
+  const hiring = useQuery(api.editorHiring.getMyEditorHiring, {});
+
+  const isApprovedNdaPending =
+    hiring?.hiring?.status === "APPROVED" && !hiring?.hiring?.ndaAcceptedAt;
   const nextMilestone = useQuery(api.milestones.getNextMilestone, {});
   const missionsWithProgress = useQuery(api.missions.getMissionsWithProgress, {});
   const projects = useQuery(api.projects.listProjects, {});
@@ -44,8 +48,36 @@ export function EditorDashboard({ user }: EditorDashboardProps) {
         <p className="text-zinc-400 mt-1">Here&apos;s your progress overview</p>
       </div>
 
+      {/* Approved - NDA pending: Congratulations + Sign NDA */}
+      {isApprovedNdaPending && (
+        <>
+          <Confetti manualstart={false} className="fixed inset-0 pointer-events-none z-50" />
+          <Card className="p-6 bg-linear-to-r from-emerald-500/10 to-teal-500/10 border-emerald-500/20">
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <p className="text-sm text-emerald-400/80">Congratulations!</p>
+                <p className="text-lg font-semibold text-zinc-100 mt-1">
+                  You&apos;ve been approved as a Muffer Partner
+                </p>
+                <p className="text-sm text-zinc-400 mt-1">
+                  Your assigned tier: <strong className="text-emerald-400">{user.tier ?? "—"}</strong>
+                </p>
+                <p className="text-sm text-zinc-400 mt-2">
+                  Sign the NDA to unlock project assignments and start earning.
+                </p>
+              </div>
+              <Link href="/onboarding">
+                <Button className="bg-emerald-600 hover:bg-emerald-700 text-white">
+                  Sign NDA
+                </Button>
+              </Link>
+            </div>
+          </Card>
+        </>
+      )}
+
       {/* Hiring / onboarding gate */}
-      {user.status === "INVITED" && (
+      {user.status === "INVITED" && !isApprovedNdaPending && (
         <Card className="p-6 bg-linear-to-r from-purple-500/10 to-indigo-500/10 border-purple-500/20">
           <div className="flex items-center justify-between gap-4">
             <div>

@@ -34,7 +34,6 @@ export default function HomePage() {
           />
         </div>
         <div className="text-center">
-          <h1 className="text-3xl font-bold text-zinc-100 tracking-tight">Muffer</h1>
           <p className="text-zinc-500 mt-2">Production OS for Video Services</p>
         </div>
         <Loader2 className="w-6 h-6 animate-spin text-rose-500" />

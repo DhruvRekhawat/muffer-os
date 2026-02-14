@@ -22,7 +22,6 @@ import {
 import { CheckCircle, FileText, Loader2 } from "lucide-react";
 import { PrinciplesModals } from "@/components/onboarding/PrinciplesModals";
 import { TestTaskSelection } from "@/components/onboarding/TestTaskSelection";
-import { NdaMultiStep } from "@/components/onboarding/NdaMultiStep";
 
 function parseCommaList(value: string): string[] {
   return value
@@ -63,9 +62,14 @@ export default function OnboardingPage() {
   const [state, setState] = useState("");
   const [postalCode, setPostalCode] = useState("");
   const [country, setCountry] = useState("");
+  const [formSaved, setFormSaved] = useState(false);
 
   const [ndaChecked, setNdaChecked] = useState(false);
   const [ndaName, setNdaName] = useState("");
+  const [ndaFathersName, setNdaFathersName] = useState("");
+  const [ndaIAgree, setNdaIAgree] = useState("");
+  const [ndaFullName, setNdaFullName] = useState("");
+  const [ndaViewedToEndEditor, setNdaViewedToEndEditor] = useState(false);
   const [ndaOpen, setNdaOpen] = useState(false);
   const [ndaOpenedOnce, setNdaOpenedOnce] = useState(false);
   const [ndaViewedToEnd, setNdaViewedToEnd] = useState(false);
@@ -135,6 +139,32 @@ export default function OnboardingPage() {
   }
 
   const handleSave = async () => {
+    // Validate required fields
+    if (!phone.trim()) {
+      alert("Please enter your phone number");
+      return;
+    }
+    if (!skills.trim()) {
+      alert("Please enter your skills");
+      return;
+    }
+    if (!experience.trim()) {
+      alert("Please tell us about your experience");
+      return;
+    }
+    if (!country.trim()) {
+      alert("Please enter your country");
+      return;
+    }
+    if (!city.trim()) {
+      alert("Please enter your city");
+      return;
+    }
+    if (!addressLine1.trim()) {
+      alert("Please enter your address");
+      return;
+    }
+
     setSaving(true);
     try {
       await updateDetails({
@@ -149,10 +179,17 @@ export default function OnboardingPage() {
         postalCode: postalCode || undefined,
         country: country || undefined,
       });
+      setFormSaved(true);
     } finally {
       setSaving(false);
     }
   };
+
+  // Check if user data is already saved (for initial load)
+  const hasSubmittedDetails = user?.phone && user?.skills && user?.experience && user?.country && user?.city && user?.addressLine1;
+  
+  // Use formSaved state or check if user has already submitted
+  const shouldShowSummary = formSaved || (hiring?.hiring?.status !== "ONBOARDING" && hasSubmittedDetails);
 
   const handleAccept = async () => {
     if (!ndaOpenedOnce) return;
@@ -179,14 +216,28 @@ export default function OnboardingPage() {
   const showNdaCard = isPM;
   const showNdaDialog = showNdaCard;
   const showEditorNdaMultiStep = isEditor && hiring?.hiring?.status === "APPROVED" && !hiring?.hiring?.ndaAcceptedAt;
+  const ndaEditorCanSign =
+    ndaViewedToEndEditor &&
+    ndaFullName.trim().length > 0 &&
+    ndaFathersName.trim().length > 0 &&
+    ndaIAgree.trim().toLowerCase() === "i agree";
 
-  const handleNdaSign = async (fullName: string) => {
+  const handleNdaSignEditor = async () => {
+    if (!ndaEditorCanSign || accepting) return;
+    await handleNdaSign(ndaFullName.trim(), ndaFathersName.trim());
+  };
+
+  const handleNdaSign = async (fullName: string, fathersName?: string) => {
     let storageId: string | undefined;
     try {
       const pdfRes = await fetch("/api/generate-agreement-pdf", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ fullName, checkboxes: NDA_CHECKBOXES_FOR_PDF }),
+        body: JSON.stringify({
+          fullName,
+          fathersName: fathersName?.trim() || undefined,
+          checkboxes: NDA_CHECKBOXES_FOR_PDF,
+        }),
       });
       if (pdfRes.ok) {
         const pdfBlob = await pdfRes.blob();
@@ -208,12 +259,148 @@ export default function OnboardingPage() {
     try {
       await acceptNda({
         fullName: fullName.trim(),
+        fathersName: fathersName?.trim() || undefined,
         ...(storageId && { signedAgreementStorageId: storageId as Id<"_storage"> }),
       });
+      window.location.href = "/onboarding/signed";
     } finally {
       setAccepting(false);
     }
   };
+
+  // Approved editor, NDA not signed: show ONLY NDA signing interface
+  if (showEditorNdaMultiStep) {
+    return (
+      <div className="space-y-6 animate-fade-in">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h1 className="text-2xl font-bold text-zinc-100">Sign Muffer Partner Agreement</h1>
+            <p className="text-zinc-400 mt-1">
+              Read the full agreement below, then enter your details and type &quot;I Agree&quot; to sign.
+            </p>
+          </div>
+          {statusLabel && (
+            <Badge className={statusLabel.className}>{statusLabel.text}</Badge>
+          )}
+        </div>
+
+        <Card className="p-6 bg-zinc-900/50 border-zinc-800 space-y-4">
+          <h2 className="text-lg font-semibold text-zinc-200">Muffer Partner Agreement</h2>
+          <div
+            ref={ndaScrollRef}
+            onScroll={(e) => {
+              const el = e.currentTarget;
+              const isBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 8;
+              if (isBottom) setNdaViewedToEndEditor(true);
+            }}
+            className="max-h-[320px] overflow-y-auto rounded-lg border border-zinc-800 bg-zinc-950/60 px-4 py-4 text-sm text-zinc-300 leading-6"
+          >
+            <div className="space-y-4">
+              <p>
+                This Partner Agreement (&quot;Agreement&quot;) is made between Devaxtrous Studios LLP (operating under the brand &quot;Muffer&quot;), having its registered office at 2nd Floor, JSV Hyundai Building CP-53, near Engineering College Chauraha, near CNG Petrol Pump, Lucknow, Uttar Pradesh 226021 (&quot;Company&quot;), and the undersigned creative partner (&quot;Partner&quot;).
+              </p>
+              <p>This Agreement combines the terms of the Non-Disclosure Agreement (NDA) and the Partner Terms of Engagement, collectively governing the relationship between Muffer and its freelance creative partners.</p>
+              <div>
+                <h4 className="font-semibold text-zinc-200 mb-2">1. Confidentiality &amp; Non-Disclosure</h4>
+                <p>The Partner acknowledges that all materials, raw footage, project briefs, client information, or any related assets shared by Muffer constitute Confidential Information. The Partner agrees to use such information solely for performing assigned Muffer projects; not share, disclose, copy, or repurpose any material for personal or external use; delete all files within seven (7) days after completion unless explicitly authorized in writing; and keep all project files secure and private at all times.</p>
+              </div>
+              <div>
+                <h4 className="font-semibold text-zinc-200 mb-2">2. Non-Circumvention</h4>
+                <p>The Partner shall not contact, solicit, or work directly with any Muffer client for independent or outside projects without prior written consent from Muffer for twelve (12) months after their last project engagement.</p>
+              </div>
+              <div>
+                <h4 className="font-semibold text-zinc-200 mb-2">3. Ownership</h4>
+                <p>All raw materials, edits, deliverables, and creative outputs remain the exclusive property of Muffer and/or its clients. The Partner shall not publish, display, or include any part of the work in a public or private portfolio without written permission.</p>
+              </div>
+              <div>
+                <h4 className="font-semibold text-zinc-200 mb-2">4. Relationship of the Parties</h4>
+                <p>The Partner operates as an independent contractor, not an employee of Muffer. The Partner is responsible for their own taxes, equipment, and workspace.</p>
+              </div>
+              <div>
+                <h4 className="font-semibold text-zinc-200 mb-2">5. Assignment &amp; Delivery</h4>
+                <p>Work must be submitted within the agreed Turnaround Time (TAT). Muffer may request up to two (2) reasonable revisions without additional charge. Consistent delays or missed deadlines may result in reduced payout or removal from active projects.</p>
+              </div>
+              <div>
+                <h4 className="font-semibold text-zinc-200 mb-2">6. Quality &amp; Performance Standards</h4>
+                <p>The Partner agrees to maintain high creative and technical standards, use only licensed or royalty-free assets and software, follow brand and formatting SOPs, and avoid the use of AI tools or external contractors without written permission.</p>
+              </div>
+              <div>
+                <h4 className="font-semibold text-zinc-200 mb-2">7. Communication &amp; Conduct</h4>
+                <p>Communication must be through official Muffer channels. Partners must respond within reasonable time frames. Professionalism and respectful communication are mandatory.</p>
+              </div>
+              <div>
+                <h4 className="font-semibold text-zinc-200 mb-2">8. Payment Terms</h4>
+                <p>Payments are processed between the 10th and 15th of each month for work completed and approved in the previous month. Payments are made via UPI or bank transfer.</p>
+              </div>
+              <div>
+                <h4 className="font-semibold text-zinc-200 mb-2">9. Termination</h4>
+                <p>Muffer may terminate collaboration immediately if the Partner breaches confidentiality or ownership, misses multiple deadlines, misuses project data, or engages in unprofessional behavior.</p>
+              </div>
+              <div>
+                <h4 className="font-semibold text-zinc-200 mb-2">10. Governing Law &amp; Jurisdiction</h4>
+                <p>This Agreement shall be governed by and interpreted under the laws of India. All disputes shall fall under the exclusive jurisdiction of the courts in Lucknow, Uttar Pradesh.</p>
+              </div>
+              <div className="pt-4 text-center text-xs text-zinc-500">
+                End of agreement. Scroll to bottom to enable signing.
+              </div>
+            </div>
+          </div>
+
+          {ndaViewedToEndEditor && (
+            <Badge className="bg-emerald-500/10 text-emerald-400 border-emerald-500/20">
+              ✓ Reached end — you may sign below
+            </Badge>
+          )}
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-zinc-300">Full name</label>
+              <Input
+                value={ndaFullName}
+                onChange={(e) => setNdaFullName(e.target.value)}
+                placeholder={user.name ?? "Your full legal name"}
+                className="bg-zinc-800 border-zinc-700 text-zinc-100"
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-zinc-300">Father&apos;s name</label>
+              <Input
+                value={ndaFathersName}
+                onChange={(e) => setNdaFathersName(e.target.value)}
+                placeholder="Father's full name"
+                className="bg-zinc-800 border-zinc-700 text-zinc-100"
+              />
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-sm font-medium text-zinc-300">Type &quot;I Agree&quot; to confirm</label>
+            <Input
+              value={ndaIAgree}
+              onChange={(e) => setNdaIAgree(e.target.value)}
+              placeholder="I Agree"
+              className="bg-zinc-800 border-zinc-700 text-zinc-100"
+            />
+          </div>
+
+          <Button
+            onClick={handleNdaSignEditor}
+            disabled={!ndaEditorCanSign || accepting}
+            className="w-full bg-rose-600 hover:bg-rose-700 text-white"
+          >
+            {accepting ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
+              <>
+                <CheckCircle className="w-4 h-4 mr-2" />
+                Sign &amp; Accept
+              </>
+            )}
+          </Button>
+        </Card>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -237,110 +424,174 @@ export default function OnboardingPage() {
 
       <Card className="p-6 bg-zinc-900/50 border-zinc-800 space-y-4">
         <h2 className="text-lg font-semibold text-zinc-200">1) Your details</h2>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-          <div className="space-y-2">
-            <label className="text-sm text-zinc-400">Phone</label>
-            <Input
-              value={phone}
-              onChange={(e) => setPhone(e.target.value)}
-              placeholder="+91..."
-              className="bg-zinc-800 border-zinc-700 text-zinc-100"
-            />
-          </div>
-          <div className="space-y-2">
-            <label className="text-sm text-zinc-400">Country</label>
-            <Input
-              value={country}
-              onChange={(e) => setCountry(e.target.value)}
-              placeholder="India"
-              className="bg-zinc-800 border-zinc-700 text-zinc-100"
-            />
-          </div>
-        </div>
+        {!shouldShowSummary ? (
+          <>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div className="space-y-2">
+                <label className="text-sm text-zinc-400">Phone</label>
+                <Input
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                  placeholder="+91..."
+                  className="bg-zinc-800 border-zinc-700 text-zinc-100"
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm text-zinc-400">Country</label>
+                <Input
+                  value={country}
+                  onChange={(e) => setCountry(e.target.value)}
+                  placeholder="India"
+                  className="bg-zinc-800 border-zinc-700 text-zinc-100"
+                />
+              </div>
+            </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-          <div className="space-y-2">
-            <label className="text-sm text-zinc-400">Skills (comma-separated)</label>
-            <Input
-              value={skills}
-              onChange={(e) => setSkills(e.target.value)}
-              placeholder="Premiere Pro, After Effects, Shorts..."
-              className="bg-zinc-800 border-zinc-700 text-zinc-100"
-            />
-          </div>
-          <div className="space-y-2">
-            <label className="text-sm text-zinc-400">Tools (comma-separated)</label>
-            <Input
-              value={tools}
-              onChange={(e) => setTools(e.target.value)}
-              placeholder="Premiere, AE, DaVinci..."
-              className="bg-zinc-800 border-zinc-700 text-zinc-100"
-            />
-          </div>
-        </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div className="space-y-2">
+                <label className="text-sm text-zinc-400">Skills (comma-separated)</label>
+                <Input
+                  value={skills}
+                  onChange={(e) => setSkills(e.target.value)}
+                  placeholder="Premiere Pro, After Effects, Shorts..."
+                  className="bg-zinc-800 border-zinc-700 text-zinc-100"
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm text-zinc-400">Tools (comma-separated)</label>
+                <Input
+                  value={tools}
+                  onChange={(e) => setTools(e.target.value)}
+                  placeholder="Premiere, AE, DaVinci..."
+                  className="bg-zinc-800 border-zinc-700 text-zinc-100"
+                />
+              </div>
+            </div>
 
-        <div className="space-y-2">
-          <label className="text-sm text-zinc-400">Experience</label>
-          <Textarea
-            value={experience}
-            onChange={(e) => setExperience(e.target.value)}
-            placeholder="Tell us briefly about your experience..."
-            className="bg-zinc-800 border-zinc-700 text-zinc-100 min-h-[120px]"
-          />
-        </div>
+            <div className="space-y-2">
+              <label className="text-sm text-zinc-400">Experience</label>
+              <Textarea
+                value={experience}
+                onChange={(e) => setExperience(e.target.value)}
+                placeholder="Tell us briefly about your experience..."
+                className="bg-zinc-800 border-zinc-700 text-zinc-100 min-h-[120px]"
+              />
+            </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-          <div className="space-y-2">
-            <label className="text-sm text-zinc-400">Address line 1</label>
-            <Input
-              value={addressLine1}
-              onChange={(e) => setAddressLine1(e.target.value)}
-              placeholder="Street, area"
-              className="bg-zinc-800 border-zinc-700 text-zinc-100"
-            />
-          </div>
-          <div className="space-y-2">
-            <label className="text-sm text-zinc-400">Address line 2</label>
-            <Input
-              value={addressLine2}
-              onChange={(e) => setAddressLine2(e.target.value)}
-              placeholder="Apartment, landmark"
-              className="bg-zinc-800 border-zinc-700 text-zinc-100"
-            />
-          </div>
-          <div className="space-y-2">
-            <label className="text-sm text-zinc-400">City</label>
-            <Input
-              value={city}
-              onChange={(e) => setCity(e.target.value)}
-              className="bg-zinc-800 border-zinc-700 text-zinc-100"
-            />
-          </div>
-          <div className="space-y-2">
-            <label className="text-sm text-zinc-400">State</label>
-            <Input
-              value={state}
-              onChange={(e) => setState(e.target.value)}
-              className="bg-zinc-800 border-zinc-700 text-zinc-100"
-            />
-          </div>
-          <div className="space-y-2">
-            <label className="text-sm text-zinc-400">Postal code</label>
-            <Input
-              value={postalCode}
-              onChange={(e) => setPostalCode(e.target.value)}
-              className="bg-zinc-800 border-zinc-700 text-zinc-100"
-            />
-          </div>
-        </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div className="space-y-2">
+                <label className="text-sm text-zinc-400">Address line 1</label>
+                <Input
+                  value={addressLine1}
+                  onChange={(e) => setAddressLine1(e.target.value)}
+                  placeholder="Street, area"
+                  className="bg-zinc-800 border-zinc-700 text-zinc-100"
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm text-zinc-400">Address line 2</label>
+                <Input
+                  value={addressLine2}
+                  onChange={(e) => setAddressLine2(e.target.value)}
+                  placeholder="Apartment, landmark"
+                  className="bg-zinc-800 border-zinc-700 text-zinc-100"
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm text-zinc-400">City</label>
+                <Input
+                  value={city}
+                  onChange={(e) => setCity(e.target.value)}
+                  className="bg-zinc-800 border-zinc-700 text-zinc-100"
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm text-zinc-400">State</label>
+                <Input
+                  value={state}
+                  onChange={(e) => setState(e.target.value)}
+                  className="bg-zinc-800 border-zinc-700 text-zinc-100"
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm text-zinc-400">Postal code</label>
+                <Input
+                  value={postalCode}
+                  onChange={(e) => setPostalCode(e.target.value)}
+                  className="bg-zinc-800 border-zinc-700 text-zinc-100"
+                />
+              </div>
+            </div>
 
-        <Button
-          onClick={handleSave}
-          disabled={saving}
-          className="bg-zinc-800 hover:bg-zinc-700 text-zinc-100"
-        >
-          {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : "Save details"}
-        </Button>
+            <Button
+              onClick={handleSave}
+              disabled={saving}
+              className="bg-zinc-800 hover:bg-zinc-700 text-zinc-100"
+            >
+              {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : "Save details"}
+            </Button>
+          </>
+        ) : (
+          <>
+            <div className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <p className="text-xs text-zinc-500 mb-1">Phone</p>
+                  <p className="text-sm text-zinc-300">{phone || "—"}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-zinc-500 mb-1">Country</p>
+                  <p className="text-sm text-zinc-300">{country || "—"}</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <p className="text-xs text-zinc-500 mb-1">Skills</p>
+                  <div className="flex flex-wrap gap-2">
+                    {skills ? parseCommaList(skills).map((skill) => (
+                      <span key={skill} className="inline-block px-2 py-1 text-xs bg-zinc-800 text-zinc-300 rounded border border-zinc-700">
+                        {skill}
+                      </span>
+                    )) : <p className="text-sm text-zinc-400">—</p>}
+                  </div>
+                </div>
+                <div>
+                  <p className="text-xs text-zinc-500 mb-1">Tools</p>
+                  <div className="flex flex-wrap gap-2">
+                    {tools ? parseCommaList(tools).map((tool) => (
+                      <span key={tool} className="inline-block px-2 py-1 text-xs bg-zinc-800 text-zinc-300 rounded border border-zinc-700">
+                        {tool}
+                      </span>
+                    )) : <p className="text-sm text-zinc-400">—</p>}
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <p className="text-xs text-zinc-500 mb-1">Experience</p>
+                <p className="text-sm text-zinc-300 whitespace-pre-wrap">{experience || "—"}</p>
+              </div>
+
+              <div>
+                <p className="text-xs text-zinc-500 mb-1">Address</p>
+                <p className="text-sm text-zinc-300">
+                  {[addressLine1, addressLine2, city, state, postalCode, country]
+                    .filter(Boolean)
+                    .join(", ") || "—"}
+                </p>
+              </div>
+            </div>
+
+            <Button
+              onClick={() => setFormSaved(false)}
+              variant="outline"
+              className="border-zinc-700 text-zinc-300 hover:bg-zinc-800"
+            >
+              Edit details
+            </Button>
+          </>
+        )}
       </Card>
 
       {isEditor && (
@@ -349,23 +600,31 @@ export default function OnboardingPage() {
           <p className="text-sm text-zinc-400">
             Your test project won&apos;t appear in the Projects list. Create it below, then open it to submit your deliverable in the milestone form (Google Drive link + notes) — not in chat.
           </p>
-          <div className="flex gap-2 flex-wrap">
-            {hiring?.testProject?.slug ? (
-              <Link href={`/projects/${hiring.testProject.slug}`}>
-                <Button className="bg-emerald-600 hover:bg-emerald-700 text-white">
-                  Open test project
+          {!shouldShowSummary ? (
+            <div className="p-4 rounded-lg bg-yellow-500/10 border border-yellow-500/30">
+              <p className="text-sm text-yellow-300">
+                ✓ Please fill and save your details above first (all fields marked are required).
+              </p>
+            </div>
+          ) : (
+            <div className="flex gap-2 flex-wrap">
+              {hiring?.testProject?.slug ? (
+                <Link href={`/projects/${hiring.testProject.slug}`}>
+                  <Button className="bg-emerald-600 hover:bg-emerald-700 text-white">
+                    Open test project
+                  </Button>
+                </Link>
+              ) : (
+                <Button
+                  onClick={handleCreateTestProject}
+                  disabled={creatingTest}
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white"
+                >
+                  {creatingTest ? <Loader2 className="w-4 h-4 animate-spin" /> : "Create test project"}
                 </Button>
-              </Link>
-            ) : hiring?.hiring?.status === "ONBOARDING" && !hiring?.hiring?.testTaskType ? (
-              <Button
-                onClick={handleCreateTestProject}
-                disabled={creatingTest}
-                className="bg-emerald-600 hover:bg-emerald-700 text-white"
-              >
-                {creatingTest ? <Loader2 className="w-4 h-4 animate-spin" /> : "Create test project"}
-              </Button>
-            ) : null}
-          </div>
+              )}
+            </div>
+          )}
         </Card>
       )}
 
@@ -373,16 +632,6 @@ export default function OnboardingPage() {
         <Card className="p-6 bg-zinc-900/50 border-zinc-800 space-y-3">
           <h2 className="text-lg font-semibold text-zinc-200">3) NDA</h2>
           <p className="text-sm text-emerald-400">You&apos;ve signed the NDA. You&apos;re all set.</p>
-        </Card>
-      )}
-
-      {showEditorNdaMultiStep && (
-        <Card className="p-6 bg-zinc-900/50 border-zinc-800 space-y-4">
-          <h2 className="text-lg font-semibold text-zinc-200">3) Sign NDA (after approval)</h2>
-          <p className="text-sm text-zinc-400">
-            Acknowledge each term below, then sign with your full name.
-          </p>
-          <NdaMultiStep userName={user.name ?? ""} onSign={handleNdaSign} />
         </Card>
       )}
 

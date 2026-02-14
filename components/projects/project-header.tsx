@@ -40,6 +40,7 @@ interface Project {
   skuCode?: string;
   editorCapAmount?: number;
   deadlineAt?: number;
+  isTestProject?: boolean;
 }
 
 interface ProjectHeaderProps {
@@ -288,7 +289,7 @@ export function ProjectHeader({ project }: ProjectHeaderProps) {
           </div>
         )}
         {/* Earnings Preview & Warnings (for editors) */}
-        {isEditor && projectedEarnings && (
+        {isEditor && projectedEarnings && !project.isTestProject && (
           <div className="mt-6 space-y-3">
             {/* Projected Earnings Card */}
             <Card className="p-4 bg-gradient-to-r from-emerald-500/10 to-blue-500/10 border-emerald-500/20">

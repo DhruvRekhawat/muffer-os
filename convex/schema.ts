@@ -386,6 +386,7 @@ export default defineSchema({
     // NDA acceptance
     ndaDocumentName: v.string(), // e.g. "Partner NDA-1.pdf"
     ndaAcceptedName: v.optional(v.string()),
+    ndaAcceptedFathersName: v.optional(v.string()),
     ndaAcceptedAt: v.optional(v.number()),
     ndaCheckboxesCompletedAt: v.optional(v.number()),
     signedAgreementPdfUrl: v.optional(v.string()),

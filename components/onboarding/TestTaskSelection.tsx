@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Loader2 } from "lucide-react";
+import { Loader2, ExternalLink } from "lucide-react";
 
 const UGC_BRIEF = `UGC TEST TASK (15-30 seconds)
 
@@ -66,6 +66,58 @@ interface TestTaskSelectionProps {
   onSelect: (type: TaskType, deadlineHours: DeadlineHours) => Promise<void>;
 }
 
+// Component to render brief text with clickable links
+function BriefContent({ text }: { text: string }) {
+  // Split text into parts, separating URLs
+  const urlRegex = /(https?:\/\/[^\s]+)/g;
+  const parts = text.split(urlRegex);
+
+  return (
+    <div className="space-y-3 text-sm leading-relaxed text-zinc-300">
+      {parts.map((part, index) => {
+        if (urlRegex.test(part)) {
+          return (
+            <a
+              key={index}
+              href={part}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 text-blue-400 hover:text-blue-300 underline"
+            >
+              {part}
+              <ExternalLink className="w-3 h-3" />
+            </a>
+          );
+        }
+
+        // Split by newlines and render paragraphs
+        return part.split("\n").map((line, lineIndex) => {
+          if (!line.trim()) {
+            return <div key={`${index}-${lineIndex}`} className="h-2" />;
+          }
+
+          // Check if line looks like a header (all caps or ends with colon)
+          const isHeader =
+            line === line.toUpperCase() || line.trim().endsWith(":");
+          if (isHeader) {
+            return (
+              <div key={`${index}-${lineIndex}`} className="font-semibold text-zinc-100 mt-3">
+                {line}
+              </div>
+            );
+          }
+
+          return (
+            <div key={`${index}-${lineIndex}`}>
+              {line}
+            </div>
+          );
+        });
+      })}
+    </div>
+  );
+}
+
 export function TestTaskSelection({ onSelect }: TestTaskSelectionProps) {
   const [selectedType, setSelectedType] = useState<TaskType | null>(null);
   const [deadlineHours, setDeadlineHours] = useState<DeadlineHours>(24);
@@ -103,9 +155,9 @@ export function TestTaskSelection({ onSelect }: TestTaskSelectionProps) {
           <p className="mt-2 text-sm text-zinc-400 line-clamp-4">
             Scroll-stopping UGC edit: fast cuts, bold text, clean audio, pattern interrupts. Beat the reference in at least one area.
           </p>
-          <pre className="mt-4 max-h-64 overflow-y-auto whitespace-pre-wrap rounded-lg border border-zinc-800 bg-zinc-950/50 p-3 text-xs text-zinc-400">
-            {UGC_BRIEF}
-          </pre>
+          <div className="mt-4 max-h-96 overflow-y-auto rounded-lg border border-zinc-800 bg-zinc-950/30 p-4">
+            <BriefContent text={UGC_BRIEF} />
+          </div>
         </Card>
 
         <Card
@@ -120,9 +172,9 @@ export function TestTaskSelection({ onSelect }: TestTaskSelectionProps) {
           <p className="mt-2 text-sm text-zinc-400 line-clamp-4">
             Storytelling-driven micro-story: emotion, pacing, sound. Not montage — a complete moment. Beat the reference.
           </p>
-          <pre className="mt-4 max-h-64 overflow-y-auto whitespace-pre-wrap rounded-lg border border-zinc-800 bg-zinc-950/50 p-3 text-xs text-zinc-400">
-            {CINEMATIC_BRIEF}
-          </pre>
+          <div className="mt-4 max-h-96 overflow-y-auto rounded-lg border border-zinc-800 bg-zinc-950/30 p-4">
+            <BriefContent text={CINEMATIC_BRIEF} />
+          </div>
         </Card>
       </div>
 
